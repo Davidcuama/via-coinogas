@@ -18,6 +18,7 @@ class CentroCostoAdmin(admin.ModelAdmin):
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = ("id", "solicitante", "area", "centro_costo", "fecha_solicitud")
+    search_fields = ("solicitante", "justificacion")
     list_filter = ("area", "centro_costo")
     date_hierarchy = "fecha_solicitud"
     readonly_fields = ("fecha_solicitud",)
