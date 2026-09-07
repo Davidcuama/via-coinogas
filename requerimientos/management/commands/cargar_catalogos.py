@@ -18,3 +18,9 @@ class Command(BaseCommand):
             )
             estado = "creada" if creado else "actualizada"
             self.stdout.write(self.style.SUCCESS(f"Prioridad '{obj}' {estado}."))
+
+        self.stdout.write(self.style.WARNING(
+            "Nota: Area y CentroCosto no se cargan aquí porque sus valores "
+            "dependen de la información real de Coinogas. Agrégalos desde "
+            "/admin o extiende este comando cuando tengan esos datos."
+        ))
