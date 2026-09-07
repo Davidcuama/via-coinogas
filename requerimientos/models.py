@@ -33,6 +33,32 @@ class CentroCosto(models.Model):
         return f"{self.codigo} - {self.nombre}"
 
 
+class Prioridad(models.Model):
+    """Catálogo cerrado de prioridades (HU-04): Alta, Media, Baja."""
+
+    ALTA = "ALTA"
+    MEDIA = "MEDIA"
+    BAJA = "BAJA"
+
+    nombre = models.CharField("Prioridad", max_length=20, unique=True)
+    orden = models.PositiveSmallIntegerField(
+        "Orden de despliegue", default=0,
+        help_text="Controla el orden en que aparece la prioridad en el selector.",
+    )
+
+    class Meta:
+        verbose_name = "Prioridad"
+        verbose_name_plural = "Prioridades"
+        ordering = ["orden"]
+
+    def __str__(self):
+        return self.nombre.title()
+
+
+def _prioridad_media_pk():
+    return Prioridad.objects.filter(nombre=Prioridad.MEDIA).values_list("pk", flat=True).first()
+
+
 class Requerimiento(models.Model):
     solicitante = models.CharField("Nombre del solicitante", max_length=150)
     area = models.ForeignKey(
@@ -48,6 +74,12 @@ class Requerimiento(models.Model):
 
     # --- Justificación (HU-03) ---
     justificacion = models.TextField("Justificación", max_length=JUSTIFICACION_MAX_LENGTH)
+
+    # --- Prioridad (HU-04) ---
+    prioridad = models.ForeignKey(
+        Prioridad, on_delete=models.PROTECT, related_name="requerimientos",
+        verbose_name="Prioridad", db_index=True, default=_prioridad_media_pk,
+    )
 
     class Meta:
         verbose_name = "Requerimiento"

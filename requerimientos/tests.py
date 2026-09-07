@@ -2,7 +2,7 @@ from datetime import date
 
 from django.test import TestCase
 
-from .models import Area, CentroCosto, Requerimiento
+from .models import Area, CentroCosto, Prioridad, Requerimiento
 
 
 class RequerimientoModelTests(TestCase):
@@ -11,6 +11,9 @@ class RequerimientoModelTests(TestCase):
     def setUp(self):
         self.area = Area.objects.create(nombre="Mantenimiento")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        # A partir de HU-04 la prioridad es obligatoria; se crea "Media" para
+        # que el default del modelo pueda resolverse en estas pruebas.
+        Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
 
     def test_encabezado_se_guarda_correctamente(self):
         req = Requerimiento.objects.create(
@@ -33,6 +36,7 @@ class RequerimientoJustificacionTests(TestCase):
     def setUp(self):
         self.area = Area.objects.create(nombre="Compras")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-200", nombre="Sede Bogotá")
+        Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
 
     def test_justificacion_vacia_es_invalida(self):
         from django.core.exceptions import ValidationError
@@ -51,3 +55,27 @@ class RequerimientoJustificacionTests(TestCase):
         )
         req.refresh_from_db()
         self.assertEqual(req.justificacion, texto)
+
+
+class RequerimientoPrioridadTests(TestCase):
+    """HU-04: prioridad de la compra."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Compras")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-300", nombre="Sede Cali")
+        self.media = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        Prioridad.objects.create(nombre=Prioridad.BAJA, orden=3)
+
+    def test_prioridad_por_defecto_es_media(self):
+        from .forms import RequerimientoForm
+        form = RequerimientoForm()
+        self.assertEqual(form.fields["prioridad"].initial, self.media.pk)
+
+    def test_prioridad_se_conserva_al_consultar(self):
+        req = Requerimiento.objects.create(
+            solicitante="Luis Ríos", area=self.area, centro_costo=self.centro_costo,
+            justificacion="Compra de papelería.", prioridad=self.media,
+        )
+        req.refresh_from_db()
+        self.assertEqual(req.prioridad, self.media)
