@@ -32,7 +32,27 @@
       </div>
     </div>
 
+    <div class="mb-3">
+      <label for="{{ form.justificacion.id_for_label }}" class="form-label">Justificación</label>
+      {{ form.justificacion }}
+      <div class="form-text">
+        <span id="contador-justificacion">0</span>/{{ form.justificacion.field.max_length }} caracteres
+      </div>
+      {% for error in form.justificacion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+
     <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
   </form>
 </div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var textarea = document.getElementById("id_justificacion");
+    var contador = document.getElementById("contador-justificacion");
+    if (!textarea || !contador) return;
+    function actualizarContador() { contador.textContent = textarea.value.length; }
+    textarea.addEventListener("input", actualizarContador);
+    actualizarContador();
+  });
+</script>
 {% endblock %}

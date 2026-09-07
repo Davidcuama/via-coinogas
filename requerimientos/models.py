@@ -1,4 +1,7 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+
+JUSTIFICACION_MAX_LENGTH = 1000
 
 
 class Area(models.Model):
@@ -43,6 +46,9 @@ class Requerimiento(models.Model):
     # auto_now_add + editable=False: se registra sola y el usuario no puede tocarla.
     fecha_solicitud = models.DateField("Fecha de solicitud", auto_now_add=True, editable=False)
 
+    # --- Justificación (HU-03) ---
+    justificacion = models.TextField("Justificación", max_length=JUSTIFICACION_MAX_LENGTH)
+
     class Meta:
         verbose_name = "Requerimiento"
         verbose_name_plural = "Requerimientos"
@@ -50,3 +56,8 @@ class Requerimiento(models.Model):
 
     def __str__(self):
         return f"Requerimiento #{self.pk} - {self.solicitante}"
+
+    def clean(self):
+        super().clean()
+        if self.justificacion is not None and not self.justificacion.strip():
+            raise ValidationError({"justificacion": "La justificación no puede quedar vacía."})
