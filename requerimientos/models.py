@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 JUSTIFICACION_MAX_LENGTH = 1000
 
@@ -56,10 +57,12 @@ class Prioridad(models.Model):
 
 
 def _prioridad_media_pk():
+    """Default callable: usa la prioridad Media si ya existe en el catálogo."""
     return Prioridad.objects.filter(nombre=Prioridad.MEDIA).values_list("pk", flat=True).first()
 
 
 class Requerimiento(models.Model):
+    # --- Encabezado (HU-02) ---
     solicitante = models.CharField("Nombre del solicitante", max_length=150)
     area = models.ForeignKey(
         Area, on_delete=models.PROTECT, related_name="requerimientos",
@@ -81,6 +84,9 @@ class Requerimiento(models.Model):
         verbose_name="Prioridad", db_index=True, default=_prioridad_media_pk,
     )
 
+    # --- Fecha requerida de recepción (HU-05) ---
+    fecha_requerida = models.DateField("Fecha requerida de recepción")
+
     class Meta:
         verbose_name = "Requerimiento"
         verbose_name_plural = "Requerimientos"
@@ -91,5 +97,21 @@ class Requerimiento(models.Model):
 
     def clean(self):
         super().clean()
+        errores = {}
+
+        # HU-03: la justificación no puede quedar vacía (ni solo espacios).
         if self.justificacion is not None and not self.justificacion.strip():
-            raise ValidationError({"justificacion": "La justificación no puede quedar vacía."})
+            errores["justificacion"] = "La justificación no puede quedar vacía."
+
+        # HU-05: la fecha requerida no puede ser anterior a la fecha de solicitud.
+        # Si el requerimiento aún no se ha guardado, fecha_solicitud todavía no
+        # existe, así que se compara contra la fecha de hoy (que es lo que
+        # auto_now_add asignará al guardar).
+        fecha_base = self.fecha_solicitud or timezone.localdate()
+        if self.fecha_requerida and self.fecha_requerida < fecha_base:
+            errores["fecha_requerida"] = (
+                "La fecha requerida no puede ser anterior a la fecha de solicitud."
+            )
+
+        if errores:
+            raise ValidationError(errores)
