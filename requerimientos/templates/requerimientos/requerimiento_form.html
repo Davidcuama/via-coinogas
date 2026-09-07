@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 720px;">
+  <h1 class="mb-4">Nuevo requerimiento de compra</h1>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-success">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    <div class="mb-3">
+      <label for="{{ form.solicitante.id_for_label }}" class="form-label">Nombre del solicitante</label>
+      {{ form.solicitante }}
+      {% for error in form.solicitante.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.area.id_for_label }}" class="form-label">Área o proyecto</label>
+        {{ form.area }}
+        {% for error in form.area.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.centro_costo.id_for_label }}" class="form-label">Centro de costo</label>
+        {{ form.centro_costo }}
+        {% for error in form.centro_costo.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
+  </form>
+</div>
+{% endblock %}
