@@ -260,6 +260,16 @@ class Item(models.Model):
     # líneas, y no deben truncarse (HU-07).
     descripcion = models.TextField("Descripción")
 
+    # --- Especificaciones técnicas (HU-09) ---
+    # Opcional: hay ítems (servicios, transportes) que no tienen ficha técnica.
+    # Cuando existe, se guarda íntegra y con sus saltos de línea, porque es lo
+    # que evita que compras adivine cuál referencia pedir.
+    especificaciones_tecnicas = models.TextField(
+        "Especificaciones técnicas",
+        blank=True,
+        help_text="Marca, modelo, referencia, rango, material, norma aplicable, etc.",
+    )
+
     # --- Marcas de tratamiento especial (HU-08) ---
     # Van por defecto en False: lo excepcional es el ítem que sí las lleva.
     requiere_calibracion = models.BooleanField(
@@ -292,3 +302,7 @@ class Item(models.Model):
         # HU-07: la descripción es obligatoria y no puede ser solo espacios.
         if self.descripcion is not None and not self.descripcion.strip():
             raise ValidationError({"descripcion": "La descripción no puede quedar vacía."})
+
+        # HU-09: unas especificaciones con solo espacios equivalen a no tenerlas.
+        if self.especificaciones_tecnicas and not self.especificaciones_tecnicas.strip():
+            self.especificaciones_tecnicas = ""

@@ -19,6 +19,12 @@ reales del formset y para la plantilla vacía que el JavaScript clona al añadir
   <td>
     {{ item.descripcion }}
     {% for error in item.descripcion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    {# HU-09: la ficha técnica va plegada para no saturar la tabla. #}
+    <details class="mt-1"{% if item.especificaciones_tecnicas.value or item.especificaciones_tecnicas.errors %} open{% endif %}>
+      <summary class="small text-muted">Especificaciones técnicas</summary>
+      <div class="mt-1">{{ item.especificaciones_tecnicas }}</div>
+      {% for error in item.especificaciones_tecnicas.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </details>
   </td>
   <td class="text-center align-middle">
     {{ item.requiere_calibracion }}

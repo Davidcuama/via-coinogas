@@ -134,6 +134,7 @@ class ItemForm(forms.ModelForm):
             "cantidad",
             "unidad_medida",
             "descripcion",
+            "especificaciones_tecnicas",
             "requiere_calibracion",
             "es_reembolsable",
         ]
@@ -146,6 +147,14 @@ class ItemForm(forms.ModelForm):
                     "class": "form-control",
                     "rows": 2,
                     "placeholder": "Qué se necesita",
+                }
+            ),
+            # HU-09: campo libre y amplio, no se recorta lo que escriba el usuario.
+            "especificaciones_tecnicas": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Marca, modelo, referencia, rango, material, norma…",
                 }
             ),
             # HU-08: marcas opcionales, sin valor obligatorio.
@@ -170,7 +179,8 @@ class ItemForm(forms.ModelForm):
         """
         if self.instance.pk:
             return super().has_changed()
-        return any(campo in self.changed_data for campo in ("cantidad", "descripcion"))
+        significativos = ("cantidad", "descripcion", "especificaciones_tecnicas")
+        return any(campo in self.changed_data for campo in significativos)
 
     def clean_descripcion(self):
         texto = self.cleaned_data.get("descripcion", "")

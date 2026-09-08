@@ -922,3 +922,101 @@ class ItemMarcasTests(TestCase):
         self.assertFalse(primero.es_reembolsable)
         self.assertFalse(segundo.requiere_calibracion)
         self.assertTrue(segundo.es_reembolsable)
+
+
+class ItemEspecificacionesTests(TestCase):
+    """Cubre HU-09 (especificaciones técnicas del ítem)."""
+
+    FICHA = (
+        'Manómetro de glicerina, diámetro 4".\n'
+        "Rango 0-100 psi, precisión ±1,6 %.\n"
+        'Conexión 1/4" NPT inferior, caja en acero inoxidable 304.\n'
+        "Debe cumplir la norma EN 837-1."
+    )
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento eléctrico")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-700", nombre="Sede Bello")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.url = reverse("requerimientos:crear")
+        self.requerimiento = Requerimiento.objects.create(
+            solicitante="Sara Ochoa",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Reposición de instrumentación.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=25),
+        )
+
+    def _item(self, **overrides):
+        datos = {
+            "requerimiento": self.requerimiento,
+            "numero": 1,
+            "cantidad": 1,
+            "unidad_medida": self.unidad,
+            "descripcion": "Manómetro",
+        }
+        datos.update(overrides)
+        return Item(**datos)
+
+    def test_especificaciones_largas_se_guardan_integras(self):
+        item = self._item(especificaciones_tecnicas=self.FICHA)
+        item.full_clean()
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.especificaciones_tecnicas, self.FICHA)
+
+    def test_especificaciones_son_opcionales(self):
+        item = self._item()
+        item.full_clean()  # no debe lanzar excepción
+        item.save()
+        self.assertEqual(item.especificaciones_tecnicas, "")
+
+    def test_especificaciones_con_solo_espacios_quedan_vacias(self):
+        item = self._item(especificaciones_tecnicas="   \n  ")
+        item.full_clean()
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.especificaciones_tecnicas, "")
+
+    def _datos_formulario(self, **overrides):
+        datos = {
+            "solicitante": "Sara Ochoa",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de instrumentación.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": date.today() + timedelta(days=25),
+            "items-TOTAL_FORMS": "1",
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "1",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-cantidad": "2",
+            "items-0-unidad_medida": self.unidad.pk,
+            "items-0-descripcion": "Manómetro",
+            "items-0-especificaciones_tecnicas": self.FICHA,
+            "items-0-id": "",
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_especificaciones_viajan_desde_el_formulario(self):
+        respuesta = self.client.post(self.url, self._datos_formulario())
+
+        self.assertEqual(respuesta.status_code, 302)
+        nuevo = Requerimiento.objects.exclude(pk=self.requerimiento.pk).get()
+        self.assertEqual(nuevo.items.get().especificaciones_tecnicas, self.FICHA)
+
+    def test_una_fila_con_solo_especificaciones_no_se_descarta_en_silencio(self):
+        datos = self._datos_formulario(
+            **{
+                "items-0-cantidad": "",
+                "items-0-descripcion": "",
+            }
+        )
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Item.objects.count(), 0)
+        self.assertIn("descripcion", respuesta.context["items"].forms[0].errors)
