@@ -1,10 +1,14 @@
+import threading
 from datetime import date, timedelta
+from unittest import skipUnless
 
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.db import connection, transaction
+from django.test import TestCase, TransactionTestCase
+from django.utils import timezone
 
 from .forms import RequerimientoForm
-from .models import Area, CentroCosto, Prioridad, Requerimiento
+from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
 
 
 class RequerimientoModelTests(TestCase):
@@ -127,3 +131,106 @@ class RequerimientoFormTests(TestCase):
         form = RequerimientoForm(data=self._datos_validos(area=9999))
         self.assertFalse(form.is_valid())
         self.assertIn("area", form.errors)
+
+
+class ConsecutivoRadicacionTests(TestCase):
+    """HU-16: consecutivo único de radicación."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+
+    def _crear(self):
+        return Requerimiento.objects.create(
+            solicitante="Juan Pérez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Repuesto para la línea 2.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+
+    def test_consecutivo_se_asigna_al_guardar_con_formato_definido(self):
+        req = self._crear()
+        anio = timezone.localdate().year
+        self.assertEqual(req.consecutivo, f"REQ-{anio}-0001")
+
+    def test_consecutivos_son_correlativos(self):
+        primero, segundo, tercero = self._crear(), self._crear(), self._crear()
+        anio = timezone.localdate().year
+        self.assertEqual(
+            [primero.consecutivo, segundo.consecutivo, tercero.consecutivo],
+            [f"REQ-{anio}-0001", f"REQ-{anio}-0002", f"REQ-{anio}-0003"],
+        )
+
+    def test_consecutivo_no_cambia_al_editar(self):
+        req = self._crear()
+        original = req.consecutivo
+        req.solicitante = "Otro nombre"
+        req.save()
+        req.refresh_from_db()
+        self.assertEqual(req.consecutivo, original)
+
+    def test_consecutivo_es_unico_en_base_de_datos(self):
+        campo = Requerimiento._meta.get_field("consecutivo")
+        self.assertTrue(campo.unique)
+        self.assertFalse(campo.editable)
+
+    def test_secuencia_reinicia_por_anio(self):
+        with transaction.atomic():
+            self.assertEqual(SecuenciaRadicacion.siguiente_consecutivo(2025), "REQ-2025-0001")
+            self.assertEqual(SecuenciaRadicacion.siguiente_consecutivo(2025), "REQ-2025-0002")
+            self.assertEqual(SecuenciaRadicacion.siguiente_consecutivo(2026), "REQ-2026-0001")
+
+    def test_str_muestra_consecutivo(self):
+        req = self._crear()
+        self.assertIn(req.consecutivo, str(req))
+
+
+@skipUnless(
+    connection.vendor == "postgresql",
+    "La prueba de concurrencia requiere bloqueo de filas (SELECT FOR UPDATE) de PostgreSQL.",
+)
+class ConsecutivoConcurrenciaTests(TransactionTestCase):
+    """HU-16: dos envíos simultáneos nunca reciben el mismo número."""
+
+    HILOS = 10
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Operaciones")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-300", nombre="Sede Cali")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+
+    def test_radicaciones_simultaneas_reciben_consecutivos_distintos(self):
+        resultados = []
+        errores = []
+        barrera = threading.Barrier(self.HILOS)
+
+        def radicar():
+            try:
+                barrera.wait()  # todos los hilos arrancan al mismo tiempo
+                req = Requerimiento.objects.create(
+                    solicitante="Solicitante concurrente",
+                    area=self.area,
+                    centro_costo=self.centro_costo,
+                    justificacion="Prueba de concurrencia.",
+                    prioridad=self.prioridad,
+                    fecha_requerida=date.today() + timedelta(days=3),
+                )
+                resultados.append(req.consecutivo)
+            except Exception as exc:
+                errores.append(exc)
+            finally:
+                connection.close()
+
+        hilos = [threading.Thread(target=radicar) for _ in range(self.HILOS)]
+        for hilo in hilos:
+            hilo.start()
+        for hilo in hilos:
+            hilo.join()
+
+        self.assertEqual(errores, [])
+        self.assertEqual(len(resultados), self.HILOS)
+        self.assertEqual(len(set(resultados)), self.HILOS, "Se repitió un consecutivo")
+        self.assertEqual(SecuenciaRadicacion.objects.get().ultimo_numero, self.HILOS)

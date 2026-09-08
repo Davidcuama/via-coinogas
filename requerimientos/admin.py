@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Area, CentroCosto, Prioridad, Requerimiento
+from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
 
 
 @admin.register(Area)
@@ -21,10 +21,16 @@ class PrioridadAdmin(admin.ModelAdmin):
     ordering = ("orden",)
 
 
+@admin.register(SecuenciaRadicacion)
+class SecuenciaRadicacionAdmin(admin.ModelAdmin):
+    list_display = ("anio", "ultimo_numero")
+    readonly_fields = ("anio", "ultimo_numero")
+
+
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
-        "id",
+        "consecutivo",
         "solicitante",
         "area",
         "centro_costo",
@@ -33,6 +39,6 @@ class RequerimientoAdmin(admin.ModelAdmin):
         "fecha_requerida",
     )
     list_filter = ("prioridad", "area", "centro_costo")
-    search_fields = ("solicitante", "justificacion")
+    search_fields = ("consecutivo", "solicitante", "justificacion")
     date_hierarchy = "fecha_solicitud"
-    readonly_fields = ("fecha_solicitud",)
+    readonly_fields = ("consecutivo", "fecha_solicitud")
