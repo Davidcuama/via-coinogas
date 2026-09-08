@@ -45,7 +45,13 @@ def notificar_radicacion(requerimiento):
         )
         return False
 
-    contexto = {"requerimiento": requerimiento}
+    contexto = {
+        "requerimiento": requerimiento,
+        # HU-19 + HU-06: sin los ítems el aviso no le sirve al analista, que es
+        # quien tiene que salir a cotizar. Se traen con su unidad de medida para
+        # no disparar una consulta por fila.
+        "items": requerimiento.items.select_related("unidad_medida"),
+    }
     mensaje = EmailMultiAlternatives(
         subject=ASUNTO.format(
             consecutivo=requerimiento.consecutivo,

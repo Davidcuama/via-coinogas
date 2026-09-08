@@ -11,6 +11,17 @@ Fecha requerida:    {{ requerimiento.fecha_requerida|date:"d/m/Y" }}
 Justificación:
 {{ requerimiento.justificacion }}
 
+Ítems solicitados: {{ items|length }}
+{% for item in items %}
+{{ item.numero }}. {{ item.cantidad }} {{ item.unidad_medida }} - {{ item.descripcion }}
+{% if item.especificaciones_tecnicas %}   Especificaciones: {{ item.especificaciones_tecnicas }}
+{% endif %}{% if item.precio_referencia %}   Precio unitario: {{ item.precio_referencia|floatformat:2 }} | Total: {{ item.total|floatformat:2 }}
+{% else %}   Sin precio de referencia.
+{% endif %}{% if item.requiere_calibracion %}   * Requiere certificado de calibración.
+{% endif %}{% if item.es_reembolsable %}   * Compra reembolsable.
+{% endif %}{% endfor %}
+Total estimado: {{ requerimiento.total_estimado|floatformat:2 }}{% if requerimiento.tiene_items_sin_precio %} (parcial: hay ítems sin precio de referencia){% endif %}
+
 --
 VIA Compras - Coinogas
 Mensaje automático, no responder a este correo.

@@ -411,6 +411,38 @@ class ConfirmacionRadicacionTests(TestCase):
         respuesta = self.client.get(reverse("requerimientos:confirmacion", args=["REQ-2026-9999"]))
         self.assertEqual(respuesta.status_code, 404)
 
+    def test_confirmacion_resume_el_numero_de_items_radicados(self):
+        datos = self.datos | datos_items("Resma de papel carta", "Tóner negro", "Caja de esferos")
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertEqual(Requerimiento.objects.get().items.count(), 3)
+        self.assertContains(respuesta, 'id="numero-items">3<')
+
+    def test_confirmacion_lista_los_items_radicados(self):
+        datos = self.datos | datos_items("Resma de papel carta", "Tóner negro")
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertContains(respuesta, "Resma de papel carta")
+        self.assertContains(respuesta, "Tóner negro")
+
+    def test_confirmacion_muestra_el_total_estimado(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-cantidad"] = "4"
+        datos["items-0-precio_referencia"] = "25000"
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertEqual(Requerimiento.objects.get().total_estimado, Decimal("100000.00"))
+        # El proyecto corre en es-co: separador decimal de coma (ver settings).
+        self.assertContains(respuesta, 'id="total-estimado">100000,00<')
+
+    def test_confirmacion_advierte_cuando_el_total_es_parcial(self):
+        # Sin precio de referencia el total sigue siendo valido, pero incompleto.
+        respuesta = self.client.post(self.url_crear, self.datos, follow=True)
+        self.assertContains(respuesta, 'id="aviso-total-parcial"')
+
+    def test_confirmacion_no_advierte_si_todos_los_items_tienen_precio(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-precio_referencia"] = "25000"
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertNotContains(respuesta, 'id="aviso-total-parcial"')
+
 
 class BorradorRequerimientoTests(TestCase):
     """HU-18: el solicitante guarda un borrador y lo retoma después."""
@@ -487,6 +519,9 @@ class BorradorRequerimientoTests(TestCase):
     def test_formulario_en_blanco_no_guarda_borrador(self):
         vacios = dict.fromkeys(self._datos_parciales(), "")
         vacios["prioridad"] = str(self.prioridad.pk)  # el selector siempre trae la Media
+        # La fila de item obligatoria viaja vacia, salvo la unidad preseleccionada.
+        vacios.update(datos_items(""))
+        vacios["items-0-cantidad"] = ""
         self.client.post(self.url_guardar, vacios)
         self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
 
@@ -528,6 +563,82 @@ class BorradorRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url_crear)
         self.assertContains(respuesta, f'formaction="{self.url_guardar}"')
         self.assertContains(respuesta, "formnovalidate")
+
+    # --- HU-18 + HU-06: el borrador tambien conserva la tabla de items ---
+
+    def _datos_parciales_con_items(self, *descripciones):
+        return self._datos_parciales() | datos_items(*descripciones)
+
+    def test_el_borrador_conserva_los_items(self):
+        self.client.post(
+            self.url_guardar,
+            self._datos_parciales_con_items("Resma de papel carta", "Toner negro"),
+        )
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual(len(formset.forms), 2)
+        self.assertEqual(
+            [f.initial["descripcion"] for f in formset.forms],
+            ["Resma de papel carta", "Toner negro"],
+        )
+
+    def test_los_items_del_borrador_se_pintan_en_el_formulario(self):
+        self.client.post(self.url_guardar, self._datos_parciales_con_items("Toner negro"))
+        respuesta = self.client.get(self.url_crear)
+        self.assertContains(respuesta, "Toner negro")
+
+    def test_el_borrador_conserva_las_marcas_del_item(self):
+        datos = self._datos_parciales_con_items("Manometro de linea")
+        datos["items-0-requiere_calibracion"] = "on"
+        datos["items-0-especificaciones_tecnicas"] = "Rango 0-100 psi, norma ISO 5171."
+        self.client.post(self.url_guardar, datos)
+        fila = self.client.get(self.url_crear).context["items"].forms[0].initial
+        self.assertTrue(fila["requiere_calibracion"])
+        self.assertFalse(fila["es_reembolsable"])
+        self.assertEqual(fila["especificaciones_tecnicas"], "Rango 0-100 psi, norma ISO 5171.")
+
+    def test_las_filas_en_blanco_no_entran_al_borrador(self):
+        datos = self._datos_parciales_con_items("Resma de papel carta", "")
+        datos["items-1-cantidad"] = ""
+        self.client.post(self.url_guardar, datos)
+        self.assertEqual(len(self.client.get(self.url_crear).context["items"].forms), 1)
+
+    def test_las_filas_marcadas_para_eliminar_no_entran_al_borrador(self):
+        datos = self._datos_parciales_con_items("Resma de papel carta", "Toner negro")
+        datos["items-1-DELETE"] = "on"
+        self.client.post(self.url_guardar, datos)
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual(
+            [f.initial["descripcion"] for f in formset.forms], ["Resma de papel carta"]
+        )
+
+    def test_un_borrador_solo_de_items_tambien_se_guarda(self):
+        # El encabezado en blanco pero con items diligenciados no es "nada".
+        datos = dict.fromkeys(self._datos_parciales(), "")
+        datos["prioridad"] = str(self.prioridad.pk)
+        datos.update(datos_items("Resma de papel carta"))
+        self.client.post(self.url_guardar, datos)
+        self.assertIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_el_aviso_dice_cuantos_items_trae_el_borrador(self):
+        self.client.post(
+            self.url_guardar,
+            self._datos_parciales_con_items("Resma de papel carta", "Toner negro"),
+        )
+        respuesta = self.client.get(self.url_crear)
+        self.assertEqual(respuesta.context["borrador"]["items"], 2)
+        self.assertContains(respuesta, "2 ítems")
+
+    def test_radicar_elimina_el_borrador_con_items(self):
+        self.client.post(self.url_guardar, self._datos_parciales_con_items("Resma de papel carta"))
+        self.client.post(self.url_crear, self._datos_completos())
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
+        self.assertEqual(self.client.get(self.url_crear).context["items"].forms[0].initial, {})
+
+    def test_sin_borrador_la_tabla_abre_con_una_sola_fila_vacia(self):
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual(len(formset.forms), 1)
+        self.assertEqual(formset.forms[0].initial, {})
 
 
 @override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "analista@coinogas.com"])
@@ -625,6 +736,51 @@ class NotificacionAreaComprasTests(TestCase):
     def test_destinatarios_ignora_entradas_vacias(self):
         with override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "  ", ""]):
             self.assertEqual(notificaciones.destinatarios(), ["compras@coinogas.com"])
+
+    # --- HU-19 + HU-06: el aviso tiene que decir que se esta pidiendo ---
+
+    def test_el_correo_lista_los_items_solicitados(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta", "Toner negro"))
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Ítems solicitados: 2", cuerpo)
+        self.assertIn("Resma de papel carta", cuerpo)
+        self.assertIn("Toner negro", cuerpo)
+
+    def test_la_version_html_tambien_lista_los_items(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta"))
+        html = mail.outbox[0].alternatives[0].content
+        self.assertIn("Resma de papel carta", html)
+
+    def test_el_correo_detalla_cantidad_unidad_y_especificaciones(self):
+        datos = self.datos | datos_items("Manometro de linea")
+        datos["items-0-cantidad"] = "3"
+        datos["items-0-especificaciones_tecnicas"] = "Rango 0-100 psi, norma ISO 5171."
+        self._radicar(datos)
+        cuerpo = mail.outbox[0].body
+        self.assertIn("3 Unidad (UND) - Manometro de linea", cuerpo)
+        self.assertIn("Rango 0-100 psi, norma ISO 5171.", cuerpo)
+
+    def test_el_correo_advierte_calibracion_y_reembolsable(self):
+        datos = self.datos | datos_items("Manometro de linea")
+        datos["items-0-requiere_calibracion"] = "on"
+        datos["items-0-es_reembolsable"] = "on"
+        self._radicar(datos)
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Requiere certificado de calibración.", cuerpo)
+        self.assertIn("Compra reembolsable.", cuerpo)
+
+    def test_el_correo_incluye_el_total_estimado(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-cantidad"] = "4"
+        datos["items-0-precio_referencia"] = "25000"
+        self._radicar(datos)
+        self.assertIn("Total estimado: 100000,00", mail.outbox[0].body)
+
+    def test_el_correo_avisa_cuando_el_total_es_parcial(self):
+        self._radicar()  # el item por defecto no trae precio
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Sin precio de referencia.", cuerpo)
+        self.assertIn("parcial", cuerpo)
 
 
 class ItemTests(TestCase):
