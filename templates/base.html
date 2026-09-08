@@ -6,6 +6,14 @@
   <title>VIA Compras</title>
 </head>
 <body>
+  {% if messages %}
+    {# Avisos del sistema (HU-18: borrador guardado o descartado). #}
+    <div class="container mt-4" style="max-width: 720px;" id="avisos">
+      {% for mensaje in messages %}
+        <div class="alert alert-{{ mensaje.level_tag|default:'info' }} mb-2" role="alert">{{ mensaje }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </body>
 </html>

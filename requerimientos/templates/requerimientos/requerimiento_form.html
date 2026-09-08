@@ -16,6 +16,25 @@
     </div>
   {% endif %}
 
+  {# HU-18: aviso de que el formulario se abrió con un borrador guardado antes. #}
+  {# Va fuera del formulario de radicación: el descarte es su propio envío. #}
+  {% if borrador %}
+    <div class="alert alert-secondary d-flex justify-content-between align-items-center"
+         role="alert" id="aviso-borrador">
+      <div>
+        <strong>Retomaste un borrador.</strong>
+        Guardado el {{ borrador.guardado_en|date:"d/m/Y" }} a las {{ borrador.guardado_en|time:"H:i" }}
+        con {{ borrador.campos_diligenciados }} campo{{ borrador.campos_diligenciados|pluralize }} diligenciado{{ borrador.campos_diligenciados|pluralize }}.
+      </div>
+      <form method="post" action="{% url 'requerimientos:descartar_borrador' %}" class="ms-3">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary" id="descartar-borrador">
+          Descartar
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
   {# HU-15: `needs-validation` activa la retroalimentación inmediata de Bootstrap en el navegador. #}
   {# El servidor valida de todas formas: es la fuente de verdad. #}
   <form method="post" class="needs-validation" novalidate>
@@ -62,7 +81,14 @@
       </div>
     </div>
 
-    <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
+      {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
+      <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
+              formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
+        Guardar borrador
+      </button>
+    </div>
   </form>
 </div>
 
@@ -73,6 +99,11 @@
     var formulario = document.querySelector("form.needs-validation");
     if (formulario) {
       formulario.addEventListener("submit", function (evento) {
+        // HU-18: guardar el borrador no pasa por la validación de campos
+        // obligatorios; el borrador es incompleto por definición.
+        var boton = evento.submitter;
+        if (boton && boton.hasAttribute("formnovalidate")) return;
+
         if (!formulario.checkValidity()) {
           evento.preventDefault();
           evento.stopPropagation();

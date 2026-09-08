@@ -4,10 +4,11 @@ from unittest import skipUnless
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import Client, TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import CAMPOS_OBLIGATORIOS, RequerimientoForm
 from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
 
@@ -370,3 +371,120 @@ class ConfirmacionRadicacionTests(TestCase):
     def test_consecutivo_inexistente_devuelve_404(self):
         respuesta = self.client.get(reverse("requerimientos:confirmacion", args=["REQ-2026-9999"]))
         self.assertEqual(respuesta.status_code, 404)
+
+
+class BorradorRequerimientoTests(TestCase):
+    """HU-18: el solicitante guarda un borrador y lo retoma después."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url_crear = reverse("requerimientos:crear")
+        self.url_guardar = reverse("requerimientos:guardar_borrador")
+        self.url_descartar = reverse("requerimientos:descartar_borrador")
+
+    def _datos_parciales(self):
+        # Lo que alcanzó a diligenciar antes de que lo interrumpieran: faltan el
+        # centro de costo y la fecha requerida.
+        return {
+            "solicitante": "Ana Gómez",
+            "area": str(self.area.pk),
+            "centro_costo": "",
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": str(self.prioridad.pk),
+            "fecha_requerida": "",
+        }
+
+    def _datos_completos(self):
+        return {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+        }
+
+    def test_guardar_borrador_no_exige_los_campos_obligatorios(self):
+        # HU-15 aplica al radicar, no al guardar: un borrador incompleto se acepta.
+        respuesta = self.client.post(self.url_guardar, self._datos_parciales())
+        self.assertRedirects(respuesta, self.url_crear)
+        self.assertIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_guardar_borrador_no_crea_un_requerimiento(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertEqual(SecuenciaRadicacion.objects.count(), 0)
+
+    def test_el_borrador_conserva_lo_diligenciado(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        respuesta = self.client.get(self.url_crear)
+        formulario = respuesta.context["form"]
+        self.assertEqual(formulario.initial["solicitante"], "Ana Gómez")
+        self.assertEqual(formulario.initial["justificacion"], "Reposición de insumos de oficina.")
+        self.assertEqual(formulario.initial["area"], str(self.area.pk))
+        self.assertContains(respuesta, "Ana Gómez")
+
+    def test_los_campos_que_faltaban_siguen_vacios_al_retomar(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        formulario = self.client.get(self.url_crear).context["form"]
+        self.assertNotIn("centro_costo", formulario.initial)
+        self.assertNotIn("fecha_requerida", formulario.initial)
+
+    def test_el_formulario_avisa_que_se_retomo_un_borrador(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        respuesta = self.client.get(self.url_crear)
+        self.assertIsNotNone(respuesta.context["borrador"])
+        self.assertContains(respuesta, 'id="aviso-borrador"')
+
+    def test_sin_borrador_el_formulario_abre_en_blanco_y_sin_aviso(self):
+        respuesta = self.client.get(self.url_crear)
+        self.assertIsNone(respuesta.context["borrador"])
+        self.assertNotContains(respuesta, 'id="aviso-borrador"')
+        self.assertNotIn("solicitante", respuesta.context["form"].initial)
+
+    def test_formulario_en_blanco_no_guarda_borrador(self):
+        vacios = dict.fromkeys(self._datos_parciales(), "")
+        vacios["prioridad"] = str(self.prioridad.pk)  # el selector siempre trae la Media
+        self.client.post(self.url_guardar, vacios)
+        self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_guardar_de_nuevo_reemplaza_el_borrador_anterior(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        datos = self._datos_parciales()
+        datos["solicitante"] = "Carlos Ruiz"
+        self.client.post(self.url_guardar, datos)
+        formulario = self.client.get(self.url_crear).context["form"]
+        self.assertEqual(formulario.initial["solicitante"], "Carlos Ruiz")
+
+    def test_descartar_borrador_deja_el_formulario_en_blanco(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        respuesta = self.client.post(self.url_descartar)
+        self.assertRedirects(respuesta, self.url_crear)
+        self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
+        self.assertIsNone(self.client.get(self.url_crear).context["borrador"])
+
+    def test_radicar_elimina_el_borrador(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        self.client.post(self.url_crear, self._datos_completos())
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_un_envio_incompleto_no_borra_el_borrador_guardado(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        respuesta = self.client.post(self.url_crear, self._datos_completos() | {"solicitante": ""})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_el_borrador_es_privado_de_cada_solicitante(self):
+        self.client.post(self.url_guardar, self._datos_parciales())
+        otro = Client()
+        respuesta = otro.get(self.url_crear)
+        self.assertIsNone(respuesta.context["borrador"])
+        self.assertNotIn("solicitante", respuesta.context["form"].initial)
+
+    def test_el_boton_de_borrador_no_dispara_la_validacion_del_navegador(self):
+        respuesta = self.client.get(self.url_crear)
+        self.assertContains(respuesta, f'formaction="{self.url_guardar}"')
+        self.assertContains(respuesta, "formnovalidate")
