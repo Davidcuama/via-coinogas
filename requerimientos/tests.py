@@ -316,3 +316,57 @@ class ValidacionCamposObligatoriosTests(TestCase):
         respuesta = self.client.post(self.url, self._datos_validos())
         self.assertEqual(respuesta.status_code, 302)
         self.assertEqual(Requerimiento.objects.count(), 1)
+
+
+class ConfirmacionRadicacionTests(TestCase):
+    """HU-17: confirmación de radicación en pantalla."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url_crear = reverse("requerimientos:crear")
+        self.datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+        }
+
+    def test_envio_exitoso_redirige_a_la_confirmacion(self):
+        respuesta = self.client.post(self.url_crear, self.datos)
+        req = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[req.consecutivo])
+        )
+
+    def test_confirmacion_muestra_el_consecutivo_destacado(self):
+        respuesta = self.client.post(self.url_crear, self.datos, follow=True)
+        req = Requerimiento.objects.get()
+        self.assertContains(respuesta, f'id="consecutivo">{req.consecutivo}<')
+
+    def test_confirmacion_resume_el_requerimiento(self):
+        respuesta = self.client.post(self.url_crear, self.datos, follow=True)
+        req = Requerimiento.objects.get()
+        self.assertContains(respuesta, "Ana Gómez")
+        self.assertContains(respuesta, "Mantenimiento")
+        self.assertContains(respuesta, "CC-100")
+        self.assertContains(respuesta, "Alta")
+        self.assertContains(respuesta, req.fecha_requerida.strftime("%d/%m/%Y"))
+
+    def test_recargar_la_confirmacion_no_duplica_el_requerimiento(self):
+        respuesta = self.client.post(self.url_crear, self.datos)
+        url_confirmacion = respuesta["Location"]
+        for _ in range(3):
+            self.client.get(url_confirmacion)
+        self.assertEqual(Requerimiento.objects.count(), 1)
+
+    def test_confirmacion_ofrece_radicar_uno_nuevo(self):
+        respuesta = self.client.post(self.url_crear, self.datos, follow=True)
+        self.assertContains(respuesta, f'href="{self.url_crear}"')
+
+    def test_consecutivo_inexistente_devuelve_404(self):
+        respuesta = self.client.get(reverse("requerimientos:confirmacion", args=["REQ-2026-9999"]))
+        self.assertEqual(respuesta.status_code, 404)
