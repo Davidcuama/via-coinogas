@@ -24,8 +24,13 @@ class PrioridadAdmin(admin.ModelAdmin):
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "solicitante", "area", "centro_costo",
-        "prioridad", "fecha_solicitud", "fecha_requerida",
+        "id",
+        "solicitante",
+        "area",
+        "centro_costo",
+        "prioridad",
+        "fecha_solicitud",
+        "fecha_requerida",
     )
     list_filter = ("prioridad", "area", "centro_costo")
     search_fields = ("solicitante", "justificacion")

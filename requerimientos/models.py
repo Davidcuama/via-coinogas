@@ -43,7 +43,8 @@ class Prioridad(models.Model):
 
     nombre = models.CharField("Prioridad", max_length=20, unique=True)
     orden = models.PositiveSmallIntegerField(
-        "Orden de despliegue", default=0,
+        "Orden de despliegue",
+        default=0,
         help_text="Controla el orden en que aparece la prioridad en el selector.",
     )
 
@@ -65,11 +66,15 @@ class Requerimiento(models.Model):
     # --- Encabezado (HU-02) ---
     solicitante = models.CharField("Nombre del solicitante", max_length=150)
     area = models.ForeignKey(
-        Area, on_delete=models.PROTECT, related_name="requerimientos",
+        Area,
+        on_delete=models.PROTECT,
+        related_name="requerimientos",
         verbose_name="Área o proyecto",
     )
     centro_costo = models.ForeignKey(
-        CentroCosto, on_delete=models.PROTECT, related_name="requerimientos",
+        CentroCosto,
+        on_delete=models.PROTECT,
+        related_name="requerimientos",
         verbose_name="Centro de costo",
     )
     # auto_now_add + editable=False: se registra sola y el usuario no puede tocarla.
@@ -80,8 +85,12 @@ class Requerimiento(models.Model):
 
     # --- Prioridad (HU-04) ---
     prioridad = models.ForeignKey(
-        Prioridad, on_delete=models.PROTECT, related_name="requerimientos",
-        verbose_name="Prioridad", db_index=True, default=_prioridad_media_pk,
+        Prioridad,
+        on_delete=models.PROTECT,
+        related_name="requerimientos",
+        verbose_name="Prioridad",
+        db_index=True,
+        default=_prioridad_media_pk,
     )
 
     # --- Fecha requerida de recepción (HU-05) ---

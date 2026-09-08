@@ -8,17 +8,26 @@ class RequerimientoForm(forms.ModelForm):
     class Meta:
         model = Requerimiento
         # fecha_solicitud queda fuera: no es editable por el usuario (HU-02).
-        fields = ["solicitante", "area", "centro_costo", "justificacion", "prioridad", "fecha_requerida"]
+        fields = [
+            "solicitante",
+            "area",
+            "centro_costo",
+            "justificacion",
+            "prioridad",
+            "fecha_requerida",
+        ]
         widgets = {
             "solicitante": forms.TextInput(attrs={"class": "form-control"}),
             "area": forms.Select(attrs={"class": "form-select"}),
             "centro_costo": forms.Select(attrs={"class": "form-select"}),
-            "justificacion": forms.Textarea(attrs={
-                "class": "form-control",
-                "rows": 5,
-                "maxlength": JUSTIFICACION_MAX_LENGTH,
-                "id": "id_justificacion",
-            }),
+            "justificacion": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 5,
+                    "maxlength": JUSTIFICACION_MAX_LENGTH,
+                    "id": "id_justificacion",
+                }
+            ),
             # HU-04: lista cerrada, el solicitante no escribe la prioridad libremente.
             "prioridad": forms.Select(attrs={"class": "form-select"}),
             # HU-05: selector de fecha nativo del navegador.

@@ -1,0 +1,5 @@
+# Dependencias de desarrollo y calidad. Instalar con: pip install -r requirements-dev.txt
+-r requirements.txt
+ruff==0.16.6
+pre-commit==4.6.2
+pip-audit==2.10.1

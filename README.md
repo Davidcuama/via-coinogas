@@ -26,6 +26,7 @@ Toda la documentación del proyecto está en la **[Wiki](../../wiki)**:
 - [Determinación de Necesidades](../../wiki/2-Determinacion-de-Necesidades)
 - [Story Mapping y Backlog](../../wiki/3-Story-Mapping-y-Backlog)
 - [Acuerdos con el cliente](../../wiki/Acuerdos-con-el-Cliente)
+- [Calidad del Software](../../wiki/Calidad-del-Software) — estándar de nombramiento, análisis estático y estrategia de ramas
 - [Glosario](../../wiki/Glosario)
 
 El **backlog** vive en las [Issues](../../issues), etiquetadas por épica y prioridad, y organizadas en milestones por sprint.
@@ -58,12 +59,37 @@ El **backlog** vive en las [Issues](../../issues), etiquetadas por épica y prio
 
 ---
 
-## Flujo de trabajo
+## Puesta en marcha local
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # en Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+cp .env.example .env                                # ajustar credenciales de PostgreSQL
+pre-commit install                                  # activa Ruff antes de cada commit
+python manage.py migrate
+python manage.py cargar_catalogos
+python manage.py runserver
+```
+
+Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.
+
+## Calidad del código
+
+| Herramienta | Para qué | Comando |
+|---|---|---|
+| Ruff (linter) | Errores, imports, seguridad y **estándar de nombramiento PEP 8** | `ruff check .` |
+| Ruff (formatter) | Formato uniforme, compatible con Black | `ruff format .` |
+| pre-commit | Ejecuta lo anterior automáticamente antes de cada commit | `pre-commit run --all-files` |
+| GitHub Actions | Corre Ruff, pip-audit y las pruebas en cada PR | automático |
+
+La configuración vive en `pyproject.toml` y la justificación en la [Wiki](../../wiki/Calidad-del-Software).
+
+## Flujo de trabajo (GitHub Flow)
 
 1. Cada historia de usuario es una issue con su etiqueta de épica, prioridad y estimación.
 2. Se trabaja en una rama por historia: `feature/HU-XX-descripcion-corta`.
 3. El pull request referencia la issue con `Closes #N` y requiere revisión de al menos un compañero.
-4. Se integra a `main` solo con la revisión aprobada.
+4. Se integra a `main` solo con la revisión aprobada **y el pipeline de CI en verde**.
 
 ## Convención de commits
 

@@ -6,67 +6,126 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Area',
+            name="Area",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('nombre', models.CharField(max_length=100, unique=True, verbose_name='Área o proyecto')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "nombre",
+                    models.CharField(max_length=100, unique=True, verbose_name="Área o proyecto"),
+                ),
             ],
             options={
-                'verbose_name': 'Área',
-                'verbose_name_plural': 'Áreas',
-                'ordering': ['nombre'],
+                "verbose_name": "Área",
+                "verbose_name_plural": "Áreas",
+                "ordering": ["nombre"],
             },
         ),
         migrations.CreateModel(
-            name='CentroCosto',
+            name="CentroCosto",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('codigo', models.CharField(max_length=20, unique=True, verbose_name='Código')),
-                ('nombre', models.CharField(max_length=100, verbose_name='Nombre')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("codigo", models.CharField(max_length=20, unique=True, verbose_name="Código")),
+                ("nombre", models.CharField(max_length=100, verbose_name="Nombre")),
             ],
             options={
-                'verbose_name': 'Centro de costo',
-                'verbose_name_plural': 'Centros de costo',
-                'ordering': ['codigo'],
+                "verbose_name": "Centro de costo",
+                "verbose_name_plural": "Centros de costo",
+                "ordering": ["codigo"],
             },
         ),
         migrations.CreateModel(
-            name='Prioridad',
+            name="Prioridad",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('nombre', models.CharField(max_length=20, unique=True, verbose_name='Prioridad')),
-                ('orden', models.PositiveSmallIntegerField(default=0, help_text='Controla el orden en que aparece la prioridad en el selector.', verbose_name='Orden de despliegue')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("nombre", models.CharField(max_length=20, unique=True, verbose_name="Prioridad")),
+                (
+                    "orden",
+                    models.PositiveSmallIntegerField(
+                        default=0,
+                        help_text="Controla el orden en que aparece la prioridad en el selector.",
+                        verbose_name="Orden de despliegue",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Prioridad',
-                'verbose_name_plural': 'Prioridades',
-                'ordering': ['orden'],
+                "verbose_name": "Prioridad",
+                "verbose_name_plural": "Prioridades",
+                "ordering": ["orden"],
             },
         ),
         migrations.CreateModel(
-            name='Requerimiento',
+            name="Requerimiento",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('solicitante', models.CharField(max_length=150, verbose_name='Nombre del solicitante')),
-                ('fecha_solicitud', models.DateField(auto_now_add=True, verbose_name='Fecha de solicitud')),
-                ('justificacion', models.TextField(max_length=1000, verbose_name='Justificación')),
-                ('fecha_requerida', models.DateField(verbose_name='Fecha requerida de recepción')),
-                ('area', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='requerimientos', to='requerimientos.area', verbose_name='Área o proyecto')),
-                ('centro_costo', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='requerimientos', to='requerimientos.centrocosto', verbose_name='Centro de costo')),
-                ('prioridad', models.ForeignKey(default=requerimientos.models._prioridad_media_pk, on_delete=django.db.models.deletion.PROTECT, related_name='requerimientos', to='requerimientos.prioridad', verbose_name='Prioridad')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "solicitante",
+                    models.CharField(max_length=150, verbose_name="Nombre del solicitante"),
+                ),
+                (
+                    "fecha_solicitud",
+                    models.DateField(auto_now_add=True, verbose_name="Fecha de solicitud"),
+                ),
+                ("justificacion", models.TextField(max_length=1000, verbose_name="Justificación")),
+                ("fecha_requerida", models.DateField(verbose_name="Fecha requerida de recepción")),
+                (
+                    "area",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="requerimientos",
+                        to="requerimientos.area",
+                        verbose_name="Área o proyecto",
+                    ),
+                ),
+                (
+                    "centro_costo",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="requerimientos",
+                        to="requerimientos.centrocosto",
+                        verbose_name="Centro de costo",
+                    ),
+                ),
+                (
+                    "prioridad",
+                    models.ForeignKey(
+                        default=requerimientos.models._prioridad_media_pk,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="requerimientos",
+                        to="requerimientos.prioridad",
+                        verbose_name="Prioridad",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Requerimiento',
-                'verbose_name_plural': 'Requerimientos',
-                'ordering': ['-fecha_solicitud'],
+                "verbose_name": "Requerimiento",
+                "verbose_name_plural": "Requerimientos",
+                "ordering": ["-fecha_solicitud"],
             },
         ),
     ]

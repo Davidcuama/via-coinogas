@@ -111,7 +111,9 @@ class RequerimientoFormTests(TestCase):
         self.assertIn("justificacion", form.errors)
 
     def test_formulario_rechaza_fecha_requerida_pasada(self):
-        form = RequerimientoForm(data=self._datos_validos(fecha_requerida=date.today() - timedelta(days=1)))
+        form = RequerimientoForm(
+            data=self._datos_validos(fecha_requerida=date.today() - timedelta(days=1))
+        )
         self.assertFalse(form.is_valid())
         self.assertIn("fecha_requerida", form.errors)
 
