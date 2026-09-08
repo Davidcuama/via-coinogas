@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 
+from django.contrib.messages import constants as niveles_mensaje
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -64,6 +65,13 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "via_coinogas.urls"
+
+# Los avisos en pantalla se pintan con las clases de alerta de Bootstrap, que no
+# tienen `error` ni `debug`; se traducen a las equivalentes.
+MESSAGE_TAGS = {
+    niveles_mensaje.DEBUG: "secondary",
+    niveles_mensaje.ERROR: "danger",
+}
 
 TEMPLATES = [
     {
