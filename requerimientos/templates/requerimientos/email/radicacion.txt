@@ -1,0 +1,17 @@
+{% autoescape off %}Se radicó un nuevo requerimiento de compra.
+
+Consecutivo:        {{ requerimiento.consecutivo }}
+Prioridad:          {{ requerimiento.prioridad }}
+Solicitante:        {{ requerimiento.solicitante }}
+Área o proyecto:    {{ requerimiento.area }}
+Centro de costo:    {{ requerimiento.centro_costo }}
+Fecha de solicitud: {{ requerimiento.fecha_solicitud|date:"d/m/Y" }}
+Fecha requerida:    {{ requerimiento.fecha_requerida|date:"d/m/Y" }}
+
+Justificación:
+{{ requerimiento.justificacion }}
+
+--
+VIA Compras - Coinogas
+Mensaje automático, no responder a este correo.
+{% endautoescape %}
