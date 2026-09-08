@@ -227,16 +227,38 @@ class ItemBaseFormSet(forms.BaseInlineFormSet):
         return super().save(commit=commit)
 
 
-# min_num=1 + validate_min: HU-06 exige al menos un ítem para radicar.
-ItemFormSet = forms.inlineformset_factory(
-    Requerimiento,
-    Item,
-    form=ItemForm,
-    formset=ItemBaseFormSet,
-    # extra=0 + min_num=1: se muestra exactamente una fila obligatoria; las
-    # demás las agrega el usuario con el botón "Agregar ítem".
-    extra=0,
-    min_num=1,
-    validate_min=True,
-    can_delete=True,
-)
+def _fabrica_item_formset(extra=0):
+    """Construye el formset de ítems con el número de filas extra indicado.
+
+    `min_num=1` + `validate_min`: HU-06 exige al menos un ítem para radicar.
+    `extra` se queda en 0 para el caso normal —se muestra exactamente la fila
+    obligatoria y las demás las agrega el usuario con «Agregar ítem»— y solo
+    crece al reabrir un borrador que traía varias filas (HU-18).
+    """
+    return forms.inlineformset_factory(
+        Requerimiento,
+        Item,
+        form=ItemForm,
+        formset=ItemBaseFormSet,
+        extra=extra,
+        min_num=1,
+        validate_min=True,
+        can_delete=True,
+    )
+
+
+ItemFormSet = _fabrica_item_formset()
+
+
+def item_formset_desde_borrador(filas):
+    """Formset de ítems precargado con las filas guardadas en un borrador (HU-18).
+
+    `min_num=1` ya aporta la primera fila, así que solo se piden como extra las
+    restantes. Sin filas guardadas queda idéntico al de un formulario en blanco.
+
+    El formset se devuelve **sin enlazar**: un borrador está incompleto por
+    definición y no debe abrirse mostrando errores de validación.
+    """
+    if not filas:
+        return ItemFormSet()
+    return _fabrica_item_formset(extra=len(filas) - 1)(initial=filas)

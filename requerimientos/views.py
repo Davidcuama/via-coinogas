@@ -6,7 +6,7 @@ from django.views import View
 from django.views.generic import CreateView, DetailView
 
 from . import borradores
-from .forms import ItemFormSet, RequerimientoForm
+from .forms import ItemFormSet, RequerimientoForm, item_formset_desde_borrador
 from .models import Requerimiento
 from .notificaciones import notificar_radicacion
 
@@ -29,8 +29,14 @@ class RequerimientoCreateView(CreateView):
         contexto["borrador"] = borradores.resumen(self.request.session)
         # HU-06: la tabla de ítems viaja junto al encabezado en el mismo POST.
         if "items" not in contexto:
-            datos = self.request.POST if self.request.method == "POST" else None
-            contexto["items"] = ItemFormSet(datos)
+            if self.request.method == "POST":
+                contexto["items"] = ItemFormSet(self.request.POST)
+            else:
+                # HU-18: al reabrir el formulario, la tabla vuelve con las filas
+                # que traía el borrador.
+                contexto["items"] = item_formset_desde_borrador(
+                    borradores.items(self.request.session)
+                )
         return contexto
 
     def form_valid(self, form):

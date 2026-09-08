@@ -519,6 +519,9 @@ class BorradorRequerimientoTests(TestCase):
     def test_formulario_en_blanco_no_guarda_borrador(self):
         vacios = dict.fromkeys(self._datos_parciales(), "")
         vacios["prioridad"] = str(self.prioridad.pk)  # el selector siempre trae la Media
+        # La fila de item obligatoria viaja vacia, salvo la unidad preseleccionada.
+        vacios.update(datos_items(""))
+        vacios["items-0-cantidad"] = ""
         self.client.post(self.url_guardar, vacios)
         self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
 
@@ -560,6 +563,80 @@ class BorradorRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url_crear)
         self.assertContains(respuesta, f'formaction="{self.url_guardar}"')
         self.assertContains(respuesta, "formnovalidate")
+
+    # --- HU-18 + HU-06: el borrador tambien conserva la tabla de items ---
+
+    def _datos_parciales_con_items(self, *descripciones):
+        return self._datos_parciales() | datos_items(*descripciones)
+
+    def test_el_borrador_conserva_los_items(self):
+        self.client.post(
+            self.url_guardar,
+            self._datos_parciales_con_items("Resma de papel carta", "Toner negro"),
+        )
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual(len(formset.forms), 2)
+        self.assertEqual(
+            [f.initial["descripcion"] for f in formset.forms],
+            ["Resma de papel carta", "Toner negro"],
+        )
+
+    def test_los_items_del_borrador_se_pintan_en_el_formulario(self):
+        self.client.post(self.url_guardar, self._datos_parciales_con_items("Toner negro"))
+        respuesta = self.client.get(self.url_crear)
+        self.assertContains(respuesta, "Toner negro")
+
+    def test_el_borrador_conserva_las_marcas_del_item(self):
+        datos = self._datos_parciales_con_items("Manometro de linea")
+        datos["items-0-requiere_calibracion"] = "on"
+        datos["items-0-especificaciones_tecnicas"] = "Rango 0-100 psi, norma ISO 5171."
+        self.client.post(self.url_guardar, datos)
+        fila = self.client.get(self.url_crear).context["items"].forms[0].initial
+        self.assertTrue(fila["requiere_calibracion"])
+        self.assertFalse(fila["es_reembolsable"])
+        self.assertEqual(fila["especificaciones_tecnicas"], "Rango 0-100 psi, norma ISO 5171.")
+
+    def test_las_filas_en_blanco_no_entran_al_borrador(self):
+        datos = self._datos_parciales_con_items("Resma de papel carta", "")
+        datos["items-1-cantidad"] = ""
+        self.client.post(self.url_guardar, datos)
+        self.assertEqual(len(self.client.get(self.url_crear).context["items"].forms), 1)
+
+    def test_las_filas_marcadas_para_eliminar_no_entran_al_borrador(self):
+        datos = self._datos_parciales_con_items("Resma de papel carta", "Toner negro")
+        datos["items-1-DELETE"] = "on"
+        self.client.post(self.url_guardar, datos)
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual([f.initial["descripcion"] for f in formset.forms], ["Resma de papel carta"])
+
+    def test_un_borrador_solo_de_items_tambien_se_guarda(self):
+        # El encabezado en blanco pero con items diligenciados no es "nada".
+        datos = dict.fromkeys(self._datos_parciales(), "")
+        datos["prioridad"] = str(self.prioridad.pk)
+        datos.update(datos_items("Resma de papel carta"))
+        self.client.post(self.url_guardar, datos)
+        self.assertIn(CLAVE_SESION_BORRADOR, self.client.session)
+
+    def test_el_aviso_dice_cuantos_items_trae_el_borrador(self):
+        self.client.post(
+            self.url_guardar,
+            self._datos_parciales_con_items("Resma de papel carta", "Toner negro"),
+        )
+        respuesta = self.client.get(self.url_crear)
+        self.assertEqual(respuesta.context["borrador"]["items"], 2)
+        self.assertContains(respuesta, "2 ítems")
+
+    def test_radicar_elimina_el_borrador_con_items(self):
+        self.client.post(self.url_guardar, self._datos_parciales_con_items("Resma de papel carta"))
+        self.client.post(self.url_crear, self._datos_completos())
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertNotIn(CLAVE_SESION_BORRADOR, self.client.session)
+        self.assertEqual(self.client.get(self.url_crear).context["items"].forms[0].initial, {})
+
+    def test_sin_borrador_la_tabla_abre_con_una_sola_fila_vacia(self):
+        formset = self.client.get(self.url_crear).context["items"]
+        self.assertEqual(len(formset.forms), 1)
+        self.assertEqual(formset.forms[0].initial, {})
 
 
 @override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "analista@coinogas.com"])

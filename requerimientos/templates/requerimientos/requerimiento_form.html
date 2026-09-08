@@ -24,7 +24,7 @@
       <div>
         <strong>Retomaste un borrador.</strong>
         Guardado el {{ borrador.guardado_en|date:"d/m/Y" }} a las {{ borrador.guardado_en|time:"H:i" }}
-        con {{ borrador.campos_diligenciados }} campo{{ borrador.campos_diligenciados|pluralize }} diligenciado{{ borrador.campos_diligenciados|pluralize }}.
+        con {{ borrador.campos_diligenciados }} campo{{ borrador.campos_diligenciados|pluralize }} diligenciado{{ borrador.campos_diligenciados|pluralize }}{% if borrador.items %} y {{ borrador.items }} ítem{{ borrador.items|pluralize }}{% endif %}.
       </div>
       <form method="post" action="{% url 'requerimientos:descartar_borrador' %}" class="ms-3">
         {% csrf_token %}
