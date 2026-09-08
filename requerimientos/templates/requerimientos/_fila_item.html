@@ -26,6 +26,14 @@ reales del formset y para la plantilla vacía que el JavaScript clona al añadir
       {% for error in item.especificaciones_tecnicas.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
     </details>
   </td>
+  <td>
+    {{ item.precio_referencia }}
+    {% for error in item.precio_referencia.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </td>
+  <td class="text-end align-middle">
+    {# HU-10: calculado, nunca digitado. #}
+    <span class="item-total text-nowrap">0</span>
+  </td>
   <td class="text-center align-middle">
     {{ item.requiere_calibracion }}
   </td>

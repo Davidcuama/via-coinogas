@@ -52,9 +52,12 @@ class ItemInline(admin.TabularInline):
         "unidad_medida",
         "descripcion",
         "especificaciones_tecnicas",
+        "precio_referencia",
+        "total",
         "requiere_calibracion",
         "es_reembolsable",
     )
+    readonly_fields = ("total",)
 
 
 @admin.register(Requerimiento)
@@ -67,6 +70,7 @@ class RequerimientoAdmin(admin.ModelAdmin):
         "prioridad",
         "fecha_solicitud",
         "fecha_requerida",
+        "total_estimado",
     )
     list_filter = ("prioridad", "area", "centro_costo")
     search_fields = ("consecutivo", "solicitante", "justificacion")
