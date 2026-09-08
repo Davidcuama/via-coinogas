@@ -19,6 +19,60 @@
 
   <p><strong>Justificación</strong><br>{{ requerimiento.justificacion|linebreaksbr }}</p>
 
+  {# HU-19 + HU-06: el detalle de lo que hay que cotizar. #}
+  <p><strong>Ítems solicitados: {{ items|length }}</strong></p>
+  <table cellpadding="6" cellspacing="0" border="1" style="border-collapse: collapse;">
+    <thead>
+      <tr style="background: #f1f3f5;">
+        <th align="center">N.º</th>
+        <th align="right">Cantidad</th>
+        <th align="left">Unidad</th>
+        <th align="left">Descripción</th>
+        <th align="right">Precio unitario</th>
+        <th align="right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        <tr>
+          <td align="center">{{ item.numero }}</td>
+          <td align="right">{{ item.cantidad }}</td>
+          <td>{{ item.unidad_medida }}</td>
+          <td>
+            {{ item.descripcion|linebreaksbr }}
+            {% if item.especificaciones_tecnicas %}
+              <div style="color: #6c757d; font-size: 12px;">
+                {{ item.especificaciones_tecnicas|linebreaksbr }}
+              </div>
+            {% endif %}
+            {% if item.requiere_calibracion %}
+              <div style="font-size: 12px;">Requiere certificado de calibración.</div>
+            {% endif %}
+            {% if item.es_reembolsable %}
+              <div style="font-size: 12px;">Compra reembolsable.</div>
+            {% endif %}
+          </td>
+          <td align="right">
+            {% if item.precio_referencia %}{{ item.precio_referencia|floatformat:2 }}{% else %}—{% endif %}
+          </td>
+          <td align="right">{{ item.total|floatformat:2 }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="5" align="right">Total estimado</th>
+        <th align="right">{{ requerimiento.total_estimado|floatformat:2 }}</th>
+      </tr>
+    </tfoot>
+  </table>
+
+  {% if requerimiento.tiene_items_sin_precio %}
+    <p style="color: #6c757d; font-size: 12px;">
+      Hay ítems sin precio de referencia: el total estimado es parcial.
+    </p>
+  {% endif %}
+
   <hr>
   <p style="color: #6c757d; font-size: 12px;">
     VIA Compras — Coinogas. Mensaje automático, no responder a este correo.

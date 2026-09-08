@@ -607,7 +607,9 @@ class BorradorRequerimientoTests(TestCase):
         datos["items-1-DELETE"] = "on"
         self.client.post(self.url_guardar, datos)
         formset = self.client.get(self.url_crear).context["items"]
-        self.assertEqual([f.initial["descripcion"] for f in formset.forms], ["Resma de papel carta"])
+        self.assertEqual(
+            [f.initial["descripcion"] for f in formset.forms], ["Resma de papel carta"]
+        )
 
     def test_un_borrador_solo_de_items_tambien_se_guarda(self):
         # El encabezado en blanco pero con items diligenciados no es "nada".
@@ -734,6 +736,51 @@ class NotificacionAreaComprasTests(TestCase):
     def test_destinatarios_ignora_entradas_vacias(self):
         with override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "  ", ""]):
             self.assertEqual(notificaciones.destinatarios(), ["compras@coinogas.com"])
+
+    # --- HU-19 + HU-06: el aviso tiene que decir que se esta pidiendo ---
+
+    def test_el_correo_lista_los_items_solicitados(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta", "Toner negro"))
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Ítems solicitados: 2", cuerpo)
+        self.assertIn("Resma de papel carta", cuerpo)
+        self.assertIn("Toner negro", cuerpo)
+
+    def test_la_version_html_tambien_lista_los_items(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta"))
+        html = mail.outbox[0].alternatives[0].content
+        self.assertIn("Resma de papel carta", html)
+
+    def test_el_correo_detalla_cantidad_unidad_y_especificaciones(self):
+        datos = self.datos | datos_items("Manometro de linea")
+        datos["items-0-cantidad"] = "3"
+        datos["items-0-especificaciones_tecnicas"] = "Rango 0-100 psi, norma ISO 5171."
+        self._radicar(datos)
+        cuerpo = mail.outbox[0].body
+        self.assertIn("3 Unidad (UND) - Manometro de linea", cuerpo)
+        self.assertIn("Rango 0-100 psi, norma ISO 5171.", cuerpo)
+
+    def test_el_correo_advierte_calibracion_y_reembolsable(self):
+        datos = self.datos | datos_items("Manometro de linea")
+        datos["items-0-requiere_calibracion"] = "on"
+        datos["items-0-es_reembolsable"] = "on"
+        self._radicar(datos)
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Requiere certificado de calibración.", cuerpo)
+        self.assertIn("Compra reembolsable.", cuerpo)
+
+    def test_el_correo_incluye_el_total_estimado(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-cantidad"] = "4"
+        datos["items-0-precio_referencia"] = "25000"
+        self._radicar(datos)
+        self.assertIn("Total estimado: 100000,00", mail.outbox[0].body)
+
+    def test_el_correo_avisa_cuando_el_total_es_parcial(self):
+        self._radicar()  # el item por defecto no trae precio
+        cuerpo = mail.outbox[0].body
+        self.assertIn("Sin precio de referencia.", cuerpo)
+        self.assertIn("parcial", cuerpo)
 
 
 class ItemTests(TestCase):
