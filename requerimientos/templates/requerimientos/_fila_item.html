@@ -9,6 +9,14 @@ reales del formset y para la plantilla vacía que el JavaScript clona al añadir
     <span class="d-none">{{ item.DELETE }}</span>
   </td>
   <td>
+    {{ item.cantidad }}
+    {% for error in item.cantidad.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </td>
+  <td>
+    {{ item.unidad_medida }}
+    {% for error in item.unidad_medida.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </td>
+  <td>
     {{ item.descripcion }}
     {% for error in item.descripcion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
   </td>
