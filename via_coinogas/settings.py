@@ -154,6 +154,16 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 
+# Default primary key field type
+# https://docs.djangoproject.com/en/6.1/ref/settings/#default-auto-field
+
+# Explícito para que las tablas nuevas usen el mismo tipo de llave que las
+# existentes: sin esto, `makemigrations --check` detecta cambios pendientes
+# contra la migración inicial, que ya declara BigAutoField.
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 

@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import JUSTIFICACION_MAX_LENGTH, Prioridad, Requerimiento
+from .models import JUSTIFICACION_MAX_LENGTH, Item, Prioridad, Requerimiento
 
 # HU-15: campos obligatorios del formato ADM-F-22 «Manifestación Requerimiento de
 # Compra». El formato exige al pie que no quede ningún espacio sin diligenciar;
@@ -114,3 +114,63 @@ class RequerimientoForm(forms.ModelForm):
                 "La fecha requerida no puede ser anterior a la fecha de solicitud."
             )
         return fecha
+
+
+class ItemForm(forms.ModelForm):
+    """Una fila de la tabla de ítems (HU-06).
+
+    Sin `required` en el HTML: una fila que el usuario agregó y dejó en blanco
+    es legítima y el servidor la ignora, así que la validación del navegador
+    (HU-15) no debe bloquear el envío por ella. Las filas diligenciadas sí se
+    validan, pero eso lo decide el servidor.
+    """
+
+    use_required_attribute = False
+
+    class Meta:
+        model = Item
+        # numero queda fuera: lo asigna el sistema, no el solicitante (HU-06).
+        fields = ["descripcion"]
+        widgets = {
+            "descripcion": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 2,
+                    "placeholder": "Qué se necesita",
+                }
+            ),
+        }
+
+
+class ItemBaseFormSet(forms.BaseInlineFormSet):
+    """Formset de ítems: numera las filas antes de guardarlas (HU-06).
+
+    Se numeran en el orden en que quedaron en el formulario para que la
+    inserción no choque con la restricción de unicidad; la numeración final la
+    deja consecutiva `Requerimiento.renumerar_items()`.
+    """
+
+    def save(self, commit=True):
+        vivos = [
+            form
+            for form in self.forms
+            if not self._should_delete_form(form) and form.cleaned_data.get("descripcion")
+        ]
+        for posicion, form in enumerate(vivos, start=1):
+            form.instance.numero = posicion
+        return super().save(commit=commit)
+
+
+# min_num=1 + validate_min: HU-06 exige al menos un ítem para radicar.
+ItemFormSet = forms.inlineformset_factory(
+    Requerimiento,
+    Item,
+    form=ItemForm,
+    formset=ItemBaseFormSet,
+    # extra=0 + min_num=1: se muestra exactamente una fila obligatoria; las
+    # demás las agrega el usuario con el botón "Agregar ítem".
+    extra=0,
+    min_num=1,
+    validate_min=True,
+    can_delete=True,
+)

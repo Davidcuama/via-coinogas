@@ -15,7 +15,26 @@ from django.utils import timezone
 from . import notificaciones
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import CAMPOS_OBLIGATORIOS, RequerimientoForm
-from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
+from .models import Area, CentroCosto, Item, Prioridad, Requerimiento, SecuenciaRadicacion
+
+
+def datos_items(*descripciones):
+    """Datos POST del formset de ítems (HU-06).
+
+    Radicar exige al menos un ítem, así que toda prueba que envíe el formulario
+    completo tiene que incluir esta parte además del encabezado.
+    """
+    descripciones = descripciones or ("Resma de papel carta",)
+    datos = {
+        "items-TOTAL_FORMS": str(len(descripciones)),
+        "items-INITIAL_FORMS": "0",
+        "items-MIN_NUM_FORMS": "1",
+        "items-MAX_NUM_FORMS": "1000",
+    }
+    for indice, descripcion in enumerate(descripciones):
+        datos[f"items-{indice}-descripcion"] = descripcion
+        datos[f"items-{indice}-id"] = ""
+    return datos
 
 
 class RequerimientoModelTests(TestCase):
@@ -260,6 +279,7 @@ class ValidacionCamposObligatoriosTests(TestCase):
             "justificacion": "Reposición de insumos de oficina.",
             "prioridad": self.prioridad.pk,
             "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
         }
         datos.update(overrides)
         return datos
@@ -339,6 +359,7 @@ class ConfirmacionRadicacionTests(TestCase):
             "justificacion": "Reposición de insumos de oficina.",
             "prioridad": self.prioridad.pk,
             "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
         }
 
     def test_envio_exitoso_redirige_a_la_confirmacion(self):
@@ -409,6 +430,7 @@ class BorradorRequerimientoTests(TestCase):
             "justificacion": "Reposición de insumos de oficina.",
             "prioridad": self.prioridad.pk,
             "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
         }
 
     def test_guardar_borrador_no_exige_los_campos_obligatorios(self):
@@ -511,6 +533,7 @@ class NotificacionAreaComprasTests(TestCase):
             "justificacion": "Reposición de insumos de oficina.",
             "prioridad": self.prioridad.pk,
             "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
         }
 
     def _radicar(self, datos=None):
@@ -589,3 +612,121 @@ class NotificacionAreaComprasTests(TestCase):
     def test_destinatarios_ignora_entradas_vacias(self):
         with override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "  ", ""]):
             self.assertEqual(notificaciones.destinatarios(), ["compras@coinogas.com"])
+
+
+class ItemTests(TestCase):
+    """Cubre HU-06 (varios ítems por requerimiento)."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Laboratorio")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-300", nombre="Planta Rionegro")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.requerimiento = Requerimiento.objects.create(
+            solicitante="Carlos Ruiz",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Calibración anual de equipos de medición.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=15),
+        )
+
+    def _crear_items(self, cantidad):
+        return [
+            Item.objects.create(
+                requerimiento=self.requerimiento,
+                numero=numero,
+                descripcion=f"Ítem {numero}",
+            )
+            for numero in range(1, cantidad + 1)
+        ]
+
+    def test_un_requerimiento_guarda_varios_items(self):
+        # Caso real de calibración: cuatro ítems en una sola solicitud.
+        self._crear_items(4)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.items.count(), 4)
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("descripcion", flat=True)),
+            ["Ítem 1", "Ítem 2", "Ítem 3", "Ítem 4"],
+        )
+
+    def test_numeracion_se_corrige_al_eliminar_un_item_intermedio(self):
+        self._crear_items(4)
+        self.requerimiento.items.get(numero=2).delete()
+
+        self.requerimiento.renumerar_items()
+
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("numero", flat=True)),
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("descripcion", flat=True)),
+            ["Ítem 1", "Ítem 3", "Ítem 4"],
+        )
+
+    def test_los_items_se_borran_con_su_requerimiento(self):
+        self._crear_items(2)
+        self.requerimiento.delete()
+        self.assertEqual(Item.objects.count(), 0)
+
+
+class RequerimientoVistaTests(TestCase):
+    """Cubre el envío completo del formulario: encabezado + ítems (HU-06)."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Producción")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-400", nombre="Sede Cali")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, descripciones, **overrides):
+        datos = {
+            "solicitante": "Laura Restrepo",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de planta.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": date.today() + timedelta(days=7),
+            "items-TOTAL_FORMS": str(len(descripciones)),
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "1",
+            "items-MAX_NUM_FORMS": "1000",
+        }
+        for indice, descripcion in enumerate(descripciones):
+            datos[f"items-{indice}-descripcion"] = descripcion
+            datos[f"items-{indice}-id"] = ""
+        datos.update(overrides)
+        return datos
+
+    def test_formulario_en_blanco_responde_con_el_formset(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("items", respuesta.context)
+
+    def test_radicar_con_varios_items_los_guarda_numerados(self):
+        descripciones = ["Manómetro", "Termómetro", "Cronómetro", "Balanza"]
+        respuesta = self.client.post(self.url, self._datos(descripciones))
+
+        self.assertEqual(respuesta.status_code, 302)
+        requerimiento = Requerimiento.objects.get()
+        self.assertEqual(
+            list(requerimiento.items.values_list("numero", "descripcion")),
+            [(1, "Manómetro"), (2, "Termómetro"), (3, "Cronómetro"), (4, "Balanza")],
+        )
+
+    def test_radicar_sin_ningun_item_es_rechazado(self):
+        datos = self._datos([""])
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertTrue(respuesta.context["items"].non_form_errors())
+
+    def test_encabezado_invalido_no_guarda_los_items(self):
+        datos = self._datos(["Manómetro"], justificacion="")
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertEqual(Item.objects.count(), 0)
