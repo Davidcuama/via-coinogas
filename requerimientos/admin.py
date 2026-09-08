@@ -51,6 +51,7 @@ class ItemInline(admin.TabularInline):
         "cantidad",
         "unidad_medida",
         "descripcion",
+        "especificaciones_tecnicas",
         "requiere_calibracion",
         "es_reembolsable",
     )
