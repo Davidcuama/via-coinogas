@@ -14,16 +14,26 @@ from django.utils import timezone
 
 from . import notificaciones
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
-from .forms import CAMPOS_OBLIGATORIOS, RequerimientoForm
-from .models import Area, CentroCosto, Item, Prioridad, Requerimiento, SecuenciaRadicacion
+from .forms import CAMPOS_OBLIGATORIOS, ItemForm, RequerimientoForm
+from .models import (
+    Area,
+    CentroCosto,
+    Item,
+    Prioridad,
+    Requerimiento,
+    SecuenciaRadicacion,
+    UnidadMedida,
+)
 
 
 def datos_items(*descripciones):
-    """Datos POST del formset de ítems (HU-06).
+    """Datos POST del formset de ítems (HU-06, HU-07).
 
     Radicar exige al menos un ítem, así que toda prueba que envíe el formulario
-    completo tiene que incluir esta parte además del encabezado.
+    completo tiene que incluir esta parte además del encabezado. La unidad de
+    medida se asegura aquí para que la prueba no tenga que sembrar el catálogo.
     """
+    unidad, _ = UnidadMedida.objects.get_or_create(codigo="UND", defaults={"nombre": "Unidad"})
     descripciones = descripciones or ("Resma de papel carta",)
     datos = {
         "items-TOTAL_FORMS": str(len(descripciones)),
@@ -32,6 +42,8 @@ def datos_items(*descripciones):
         "items-MAX_NUM_FORMS": "1000",
     }
     for indice, descripcion in enumerate(descripciones):
+        datos[f"items-{indice}-cantidad"] = "1"
+        datos[f"items-{indice}-unidad_medida"] = unidad.pk
         datos[f"items-{indice}-descripcion"] = descripcion
         datos[f"items-{indice}-id"] = ""
     return datos
@@ -621,6 +633,7 @@ class ItemTests(TestCase):
         self.area = Area.objects.create(nombre="Laboratorio")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-300", nombre="Planta Rionegro")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
         self.requerimiento = Requerimiento.objects.create(
             solicitante="Carlos Ruiz",
             area=self.area,
@@ -635,6 +648,8 @@ class ItemTests(TestCase):
             Item.objects.create(
                 requerimiento=self.requerimiento,
                 numero=numero,
+                cantidad=numero,
+                unidad_medida=self.unidad,
                 descripcion=f"Ítem {numero}",
             )
             for numero in range(1, cantidad + 1)
@@ -678,6 +693,7 @@ class RequerimientoVistaTests(TestCase):
         self.area = Area.objects.create(nombre="Producción")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-400", nombre="Sede Cali")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
         self.url = reverse("requerimientos:crear")
 
     def _datos(self, descripciones, **overrides):
@@ -694,6 +710,8 @@ class RequerimientoVistaTests(TestCase):
             "items-MAX_NUM_FORMS": "1000",
         }
         for indice, descripcion in enumerate(descripciones):
+            datos[f"items-{indice}-cantidad"] = "1" if descripcion else ""
+            datos[f"items-{indice}-unidad_medida"] = self.unidad.pk if descripcion else ""
             datos[f"items-{indice}-descripcion"] = descripcion
             datos[f"items-{indice}-id"] = ""
         datos.update(overrides)
@@ -730,3 +748,96 @@ class RequerimientoVistaTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(Requerimiento.objects.count(), 0)
         self.assertEqual(Item.objects.count(), 0)
+
+    def test_una_fila_en_blanco_no_crea_un_item(self):
+        """La fila que el usuario agrega y deja vacía se ignora, no da error."""
+        datos = self._datos(["Válvula de bola 2 pulgadas", ""])
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Item.objects.count(), 1)
+
+
+class ItemDatosBasicosTests(TestCase):
+    """Cubre HU-07 (cantidad, unidad de medida y descripción del ítem)."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Metrología")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-500", nombre="Sede Itagüí")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.BAJA, orden=3)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.requerimiento = Requerimiento.objects.create(
+            solicitante="Marta Alzate",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Compra de instrumentos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=20),
+        )
+
+    def _item(self, **overrides):
+        datos = {
+            "requerimiento": self.requerimiento,
+            "numero": 1,
+            "cantidad": 3,
+            "unidad_medida": self.unidad,
+            "descripcion": "Manómetro de glicerina 0-100 psi",
+        }
+        datos.update(overrides)
+        return Item(**datos)
+
+    def test_cantidad_cero_es_invalida(self):
+        with self.assertRaises(ValidationError):
+            self._item(cantidad=0).full_clean()
+
+    def test_cantidad_negativa_es_invalida(self):
+        with self.assertRaises(ValidationError):
+            self._item(cantidad=-2).full_clean()
+
+    def test_cantidad_positiva_es_valida(self):
+        self._item(cantidad=1).full_clean()  # no debe lanzar excepción
+
+    def test_descripcion_vacia_es_invalida(self):
+        with self.assertRaises(ValidationError):
+            self._item(descripcion="   ").full_clean()
+
+    def test_descripcion_larga_y_multilinea_no_se_trunca(self):
+        texto = ("Manómetro de glicerina.\nRango 0-100 psi, rosca 1/4 NPT inferior.\n") * 20
+        item = self._item(descripcion=texto)
+        item.full_clean()
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.descripcion, texto)
+
+    def test_unidad_de_medida_es_obligatoria(self):
+        with self.assertRaises(ValidationError):
+            self._item(unidad_medida=None).full_clean()
+
+    def test_unidad_de_medida_se_conserva_al_consultar(self):
+        item = self._item()
+        item.full_clean()
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.unidad_medida, self.unidad)
+
+    # --- Formulario ---
+    def test_formulario_de_item_propone_unidad_por_defecto(self):
+        form = ItemForm()
+        self.assertEqual(form.fields["unidad_medida"].initial, self.unidad.pk)
+
+    def test_formulario_de_item_rechaza_cantidad_cero(self):
+        form = ItemForm(
+            data={
+                "cantidad": 0,
+                "unidad_medida": self.unidad.pk,
+                "descripcion": "Termómetro digital",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("cantidad", form.errors)
+
+    def test_formulario_de_item_exige_los_tres_campos(self):
+        form = ItemForm(data={"cantidad": "", "unidad_medida": "", "descripcion": ""})
+        self.assertFalse(form.is_valid())
+        for campo in ("cantidad", "unidad_medida", "descripcion"):
+            self.assertIn(campo, form.errors)

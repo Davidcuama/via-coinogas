@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import JUSTIFICACION_MAX_LENGTH, Item, Prioridad, Requerimiento
+from .models import JUSTIFICACION_MAX_LENGTH, Item, Prioridad, Requerimiento, UnidadMedida
 
 # HU-15: campos obligatorios del formato ADM-F-22 «Manifestación Requerimiento de
 # Compra». El formato exige al pie que no quede ningún espacio sin diligenciar;
@@ -130,8 +130,11 @@ class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
         # numero queda fuera: lo asigna el sistema, no el solicitante (HU-06).
-        fields = ["descripcion"]
+        fields = ["cantidad", "unidad_medida", "descripcion"]
         widgets = {
+            # min=1 en el HTML acompaña al validador del modelo (HU-07).
+            "cantidad": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "unidad_medida": forms.Select(attrs={"class": "form-select"}),
             "descripcion": forms.Textarea(
                 attrs={
                     "class": "form-control",
@@ -140,6 +143,31 @@ class ItemForm(forms.ModelForm):
                 }
             ),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # HU-07: "Unidad" es la medida más frecuente, se propone por defecto.
+        if not self.instance.pk:
+            unidad = UnidadMedida.objects.filter(codigo="UND").first()
+            if unidad:
+                self.fields["unidad_medida"].initial = unidad.pk
+
+    def has_changed(self):
+        """Una fila con solo la unidad preseleccionada sigue estando vacía.
+
+        Sin esto, el valor por defecto de `unidad_medida` haría que Django
+        considerara «diligenciada» cualquier fila que el usuario agregó y dejó
+        en blanco, y le exigiría el resto de los campos.
+        """
+        if self.instance.pk:
+            return super().has_changed()
+        return any(campo in self.changed_data for campo in ("cantidad", "descripcion"))
+
+    def clean_descripcion(self):
+        texto = self.cleaned_data.get("descripcion", "")
+        if not texto.strip():
+            raise forms.ValidationError("La descripción no puede quedar vacía.")
+        return texto
 
 
 class ItemBaseFormSet(forms.BaseInlineFormSet):
@@ -152,9 +180,7 @@ class ItemBaseFormSet(forms.BaseInlineFormSet):
 
     def save(self, commit=True):
         vivos = [
-            form
-            for form in self.forms
-            if not self._should_delete_form(form) and form.cleaned_data.get("descripcion")
+            form for form in self.forms if not self._should_delete_form(form) and form.has_changed()
         ]
         for posicion, form in enumerate(vivos, start=1):
             form.instance.numero = posicion

@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Area, CentroCosto, Item, Prioridad, Requerimiento, SecuenciaRadicacion
+from .models import (
+    Area,
+    CentroCosto,
+    Item,
+    Prioridad,
+    Requerimiento,
+    SecuenciaRadicacion,
+    UnidadMedida,
+)
 
 
 @admin.register(Area)
@@ -11,6 +19,12 @@ class AreaAdmin(admin.ModelAdmin):
 
 @admin.register(CentroCosto)
 class CentroCostoAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "nombre")
+    search_fields = ("codigo", "nombre")
+
+
+@admin.register(UnidadMedida)
+class UnidadMedidaAdmin(admin.ModelAdmin):
     list_display = ("codigo", "nombre")
     search_fields = ("codigo", "nombre")
 
@@ -32,7 +46,7 @@ class ItemInline(admin.TabularInline):
 
     model = Item
     extra = 1
-    fields = ("numero", "descripcion")
+    fields = ("numero", "cantidad", "unidad_medida", "descripcion")
 
 
 @admin.register(Requerimiento)

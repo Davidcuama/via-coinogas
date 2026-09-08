@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -38,6 +39,21 @@ class CentroCosto(models.Model):
 
     def __str__(self):
         return f"{self.codigo} - {self.nombre}"
+
+
+class UnidadMedida(models.Model):
+    """Catálogo de unidades de medida de los ítems (HU-07)."""
+
+    codigo = models.CharField("Código", max_length=10, unique=True)
+    nombre = models.CharField("Nombre", max_length=50)
+
+    class Meta:
+        verbose_name = "Unidad de medida"
+        verbose_name_plural = "Unidades de medida"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.codigo})"
 
 
 class Prioridad(models.Model):
@@ -228,6 +244,20 @@ class Item(models.Model):
         default=1,
         help_text="Consecutivo del ítem dentro del requerimiento.",
     )
+    # HU-07: entero mayor que cero. PositiveIntegerField admite el 0, así que
+    # el mínimo real lo impone el validador.
+    cantidad = models.PositiveIntegerField(
+        "Cantidad",
+        validators=[MinValueValidator(1, "La cantidad debe ser mayor que cero.")],
+    )
+    unidad_medida = models.ForeignKey(
+        UnidadMedida,
+        on_delete=models.PROTECT,
+        related_name="items",
+        verbose_name="Unidad de medida",
+    )
+    # TextField y no CharField: las descripciones reales son largas y de varias
+    # líneas, y no deben truncarse (HU-07).
     descripcion = models.TextField("Descripción")
 
     class Meta:
@@ -243,3 +273,9 @@ class Item(models.Model):
 
     def __str__(self):
         return f"Ítem {self.numero} del requerimiento #{self.requerimiento_id}"
+
+    def clean(self):
+        super().clean()
+        # HU-07: la descripción es obligatoria y no puede ser solo espacios.
+        if self.descripcion is not None and not self.descripcion.strip():
+            raise ValidationError({"descripcion": "La descripción no puede quedar vacía."})
