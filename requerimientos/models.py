@@ -162,6 +162,29 @@ class Requerimiento(models.Model):
             self.consecutivo = SecuenciaRadicacion.siguiente_consecutivo()
             return super().save(*args, **kwargs)
 
+    def renumerar_items(self):
+        """Deja la numeración de los ítems consecutiva desde 1 (HU-06).
+
+        Se llama después de guardar el formset: si el solicitante elimina un
+        ítem intermedio, los siguientes se corren para que no queden huecos.
+
+        La renumeración se hace en dos pasadas —primero a números por encima
+        del máximo actual y luego a 1..N— para no chocar con la restricción de
+        unicidad mientras los valores viejos y nuevos se solapan.
+        """
+        items = list(self.items.order_by("numero", "pk"))
+        if not items:
+            return
+
+        desplazamiento = max(item.numero for item in items)
+        for posicion, item in enumerate(items, start=1):
+            item.numero = desplazamiento + posicion
+        Item.objects.bulk_update(items, ["numero"])
+
+        for posicion, item in enumerate(items, start=1):
+            item.numero = posicion
+        Item.objects.bulk_update(items, ["numero"])
+
     def clean(self):
         super().clean()
         errores = {}
@@ -183,3 +206,40 @@ class Requerimiento(models.Model):
 
         if errores:
             raise ValidationError(errores)
+
+
+class Item(models.Model):
+    """Artículo o servicio solicitado dentro de un requerimiento (HU-06).
+
+    Un requerimiento agrupa varios ítems para que el solicitante no tenga que
+    radicar una solicitud por cada artículo. Al borrarse el requerimiento se
+    borran sus ítems: un ítem no tiene sentido por fuera de su solicitud.
+    """
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name="Requerimiento",
+    )
+    # Lo asigna el sistema (ver Requerimiento.renumerar_items), no el usuario.
+    numero = models.PositiveIntegerField(
+        "N.º",
+        default=1,
+        help_text="Consecutivo del ítem dentro del requerimiento.",
+    )
+    descripcion = models.TextField("Descripción")
+
+    class Meta:
+        verbose_name = "Ítem"
+        verbose_name_plural = "Ítems"
+        ordering = ["requerimiento", "numero"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requerimiento", "numero"],
+                name="item_numero_unico_por_requerimiento",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Ítem {self.numero} del requerimiento #{self.requerimiento_id}"

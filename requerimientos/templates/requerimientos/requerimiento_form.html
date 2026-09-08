@@ -81,6 +81,38 @@
       </div>
     </div>
 
+    <hr class="my-4">
+
+    <h2 class="h5 mb-3">Ítems del requerimiento</h2>
+
+    {{ items.management_form }}
+    {% for error in items.non_form_errors %}
+      <div class="alert alert-danger">{{ error }}</div>
+    {% endfor %}
+
+    <table class="table table-sm align-middle" id="tabla-items">
+      <thead>
+        <tr>
+          <th style="width: 3rem;" class="text-center">N.º</th>
+          <th>Descripción</th>
+          <th style="width: 3rem;"></th>
+        </tr>
+      </thead>
+      <tbody id="items-cuerpo">
+        {% for item in items %}
+          {% include "requerimientos/_fila_item.html" with item=item %}
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <template id="plantilla-item">
+      {% include "requerimientos/_fila_item.html" with item=items.empty_form %}
+    </template>
+
+    <button type="button" class="btn btn-outline-secondary btn-sm mb-4" id="agregar-item">
+      + Agregar ítem
+    </button>
+
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
       {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
@@ -127,4 +159,78 @@
     actualizarContador();
   });
 </script>
+
+<script>
+  // HU-06: alta y baja de filas de ítems sin recargar la página.
+  document.addEventListener("DOMContentLoaded", function () {
+    var cuerpo = document.getElementById("items-cuerpo");
+    var plantilla = document.getElementById("plantilla-item");
+    var botonAgregar = document.getElementById("agregar-item");
+    var totalForms = document.getElementById("id_items-TOTAL_FORMS");
+    if (!cuerpo || !plantilla || !botonAgregar || !totalForms) return;
+
+    function filasVisibles() {
+      return Array.prototype.filter.call(
+        cuerpo.querySelectorAll(".item-fila"),
+        function (fila) { return !fila.classList.contains("d-none"); }
+      );
+    }
+
+    // Reescribe los índices del formset para que queden 0..N-1 sin huecos.
+    function reindexar() {
+      var filas = cuerpo.querySelectorAll(".item-fila");
+      Array.prototype.forEach.call(filas, function (fila, indice) {
+        Array.prototype.forEach.call(fila.querySelectorAll("input, select, textarea, label"), function (campo) {
+          ["name", "id", "for"].forEach(function (atributo) {
+            var valor = campo.getAttribute(atributo);
+            if (valor) {
+              campo.setAttribute(atributo, valor.replace(/items-(\d+|__prefix__)-/, "items-" + indice + "-"));
+            }
+          });
+        });
+      });
+      totalForms.value = filas.length;
+    }
+
+    // La numeración visible siempre va de 1 en adelante (HU-06).
+    function renumerar() {
+      filasVisibles().forEach(function (fila, indice) {
+        var celda = fila.querySelector(".item-numero");
+        if (celda) celda.textContent = indice + 1;
+      });
+    }
+
+    botonAgregar.addEventListener("click", function () {
+      var fila = plantilla.content.firstElementChild.cloneNode(true);
+      cuerpo.appendChild(fila);
+      reindexar();
+      renumerar();
+    });
+
+    cuerpo.addEventListener("click", function (evento) {
+      var boton = evento.target.closest(".item-eliminar");
+      if (!boton) return;
+
+      // Siempre debe quedar al menos un ítem (HU-06).
+      if (filasVisibles().length <= 1) return;
+
+      var fila = boton.closest(".item-fila");
+      var idGuardado = fila.querySelector('input[name$="-id"]');
+      var casillaBorrar = fila.querySelector('input[name$="-DELETE"]');
+
+      if (idGuardado && idGuardado.value && casillaBorrar) {
+        // Ítem ya guardado: se marca para borrar y se oculta.
+        casillaBorrar.checked = true;
+        fila.classList.add("d-none");
+      } else {
+        fila.remove();
+        reindexar();
+      }
+      renumerar();
+    });
+
+    renumerar();
+  });
+</script>
+
 {% endblock %}

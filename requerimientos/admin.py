@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
+from .models import Area, CentroCosto, Item, Prioridad, Requerimiento, SecuenciaRadicacion
 
 
 @admin.register(Area)
@@ -27,6 +27,14 @@ class SecuenciaRadicacionAdmin(admin.ModelAdmin):
     readonly_fields = ("anio", "ultimo_numero")
 
 
+class ItemInline(admin.TabularInline):
+    """Los ítems se editan dentro de su requerimiento (HU-06)."""
+
+    model = Item
+    extra = 1
+    fields = ("numero", "descripcion")
+
+
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
@@ -42,3 +50,4 @@ class RequerimientoAdmin(admin.ModelAdmin):
     search_fields = ("consecutivo", "solicitante", "justificacion")
     date_hierarchy = "fecha_solicitud"
     readonly_fields = ("consecutivo", "fecha_solicitud")
+    inlines = [ItemInline]

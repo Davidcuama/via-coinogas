@@ -1,0 +1,18 @@
+{% comment %}
+Una fila de la tabla de ítems (HU-06). Se usa dos veces: para los formularios
+reales del formset y para la plantilla vacía que el JavaScript clona al añadir.
+{% endcomment %}
+<tr class="item-fila">
+  <td class="text-center align-middle">
+    {% for campo in item.hidden_fields %}{{ campo }}{% endfor %}
+    <span class="item-numero fw-semibold"></span>
+    <span class="d-none">{{ item.DELETE }}</span>
+  </td>
+  <td>
+    {{ item.descripcion }}
+    {% for error in item.descripcion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </td>
+  <td class="text-center align-middle">
+    <button type="button" class="btn btn-outline-danger btn-sm item-eliminar" title="Eliminar ítem">&times;</button>
+  </td>
+</tr>

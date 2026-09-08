@@ -6,7 +6,7 @@ from django.views import View
 from django.views.generic import CreateView, DetailView
 
 from . import borradores
-from .forms import RequerimientoForm
+from .forms import ItemFormSet, RequerimientoForm
 from .models import Requerimiento
 from .notificaciones import notificar_radicacion
 
@@ -27,18 +27,41 @@ class RequerimientoCreateView(CreateView):
         contexto = super().get_context_data(**kwargs)
         # HU-18: alimenta el aviso "retomaste un borrador" y su botón de descarte.
         contexto["borrador"] = borradores.resumen(self.request.session)
+        # HU-06: la tabla de ítems viaja junto al encabezado en el mismo POST.
+        if "items" not in contexto:
+            datos = self.request.POST if self.request.method == "POST" else None
+            contexto["items"] = ItemFormSet(datos)
         return contexto
 
     def form_valid(self, form):
-        respuesta = super().form_valid(form)
+        # HU-06: un encabezado válido todavía no basta; si los ítems no lo son,
+        # se devuelve el formulario completo sin tocar la base de datos.
+        items = ItemFormSet(self.request.POST)
+        if not items.is_valid():
+            return self.form_invalid(form, items)
+
+        # Encabezado e ítems entran en una sola transacción: o entra todo, o nada.
+        with transaction.atomic():
+            respuesta = super().form_valid(form)
+            items.instance = self.object
+            items.save()
+            self.object.renumerar_items()
+            # HU-19: el aviso al área de compras se dispara solo si la transacción
+            # llegó a confirmarse; si la radicación se deshace, no se avisa de un
+            # requerimiento que no existe.
+            requerimiento = self.object
+            transaction.on_commit(lambda: notificar_radicacion(requerimiento))
+
         # HU-18: el borrador cumplió su función, el requerimiento ya quedó radicado.
         borradores.descartar(self.request.session)
-        # HU-19: el aviso al área de compras se dispara solo si la transacción
-        # llegó a confirmarse; si la radicación se deshace, no se avisa de un
-        # requerimiento que no existe.
-        requerimiento = self.object
-        transaction.on_commit(lambda: notificar_radicacion(requerimiento))
         return respuesta
+
+    def form_invalid(self, form, items=None):
+        # HU-06: el formset se conserva tal como lo envió el usuario para que no
+        # pierda las filas que ya había diligenciado.
+        if items is None:
+            items = ItemFormSet(self.request.POST)
+        return self.render_to_response(self.get_context_data(form=form, items=items))
 
     def get_success_url(self):
         # HU-17: patrón Post/Redirect/Get. Tras radicar se redirige a la pantalla
