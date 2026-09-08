@@ -260,6 +260,19 @@ class Item(models.Model):
     # líneas, y no deben truncarse (HU-07).
     descripcion = models.TextField("Descripción")
 
+    # --- Marcas de tratamiento especial (HU-08) ---
+    # Van por defecto en False: lo excepcional es el ítem que sí las lleva.
+    requiere_calibracion = models.BooleanField(
+        "¿Requiere calibración?",
+        default=False,
+        help_text="El ítem debe entregarse con certificado de calibración vigente.",
+    )
+    es_reembolsable = models.BooleanField(
+        "¿Es reembolsable?",
+        default=False,
+        help_text="La compra se factura a un tercero o se reembolsa al solicitante.",
+    )
+
     class Meta:
         verbose_name = "Ítem"
         verbose_name_plural = "Ítems"

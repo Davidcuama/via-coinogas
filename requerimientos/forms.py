@@ -130,7 +130,13 @@ class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
         # numero queda fuera: lo asigna el sistema, no el solicitante (HU-06).
-        fields = ["cantidad", "unidad_medida", "descripcion"]
+        fields = [
+            "cantidad",
+            "unidad_medida",
+            "descripcion",
+            "requiere_calibracion",
+            "es_reembolsable",
+        ]
         widgets = {
             # min=1 en el HTML acompaña al validador del modelo (HU-07).
             "cantidad": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
@@ -142,6 +148,9 @@ class ItemForm(forms.ModelForm):
                     "placeholder": "Qué se necesita",
                 }
             ),
+            # HU-08: marcas opcionales, sin valor obligatorio.
+            "requiere_calibracion": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "es_reembolsable": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
     def __init__(self, *args, **kwargs):

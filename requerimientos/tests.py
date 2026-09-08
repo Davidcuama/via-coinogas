@@ -841,3 +841,84 @@ class ItemDatosBasicosTests(TestCase):
         self.assertFalse(form.is_valid())
         for campo in ("cantidad", "unidad_medida", "descripcion"):
             self.assertIn(campo, form.errors)
+
+
+class ItemMarcasTests(TestCase):
+    """Cubre HU-08 (marcas de calibración y de reembolsable)."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Instrumentación")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-600", nombre="Sede Envigado")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.url = reverse("requerimientos:crear")
+        self.requerimiento = Requerimiento.objects.create(
+            solicitante="Diego Marín",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Calibración anual.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=12),
+        )
+
+    def _item(self, **overrides):
+        datos = {
+            "requerimiento": self.requerimiento,
+            "numero": 1,
+            "cantidad": 1,
+            "unidad_medida": self.unidad,
+            "descripcion": "Patrón de presión",
+        }
+        datos.update(overrides)
+        return Item.objects.create(**datos)
+
+    def test_las_marcas_van_apagadas_por_defecto(self):
+        item = self._item()
+        item.refresh_from_db()
+        self.assertFalse(item.requiere_calibracion)
+        self.assertFalse(item.es_reembolsable)
+
+    def test_las_marcas_se_guardan_y_se_recuperan(self):
+        item = self._item(requiere_calibracion=True, es_reembolsable=True)
+        item.refresh_from_db()
+        self.assertTrue(item.requiere_calibracion)
+        self.assertTrue(item.es_reembolsable)
+
+    def test_las_marcas_son_independientes_entre_si(self):
+        item = self._item(requiere_calibracion=True)
+        item.refresh_from_db()
+        self.assertTrue(item.requiere_calibracion)
+        self.assertFalse(item.es_reembolsable)
+
+    def test_las_marcas_se_registran_desde_el_formulario(self):
+        datos = {
+            "solicitante": "Diego Marín",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Calibración anual de patrones.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": date.today() + timedelta(days=12),
+            "items-TOTAL_FORMS": "2",
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "1",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-cantidad": "1",
+            "items-0-unidad_medida": self.unidad.pk,
+            "items-0-descripcion": "Patrón de presión",
+            "items-0-requiere_calibracion": "on",
+            "items-0-id": "",
+            "items-1-cantidad": "2",
+            "items-1-unidad_medida": self.unidad.pk,
+            "items-1-descripcion": "Tiquetes de transporte",
+            "items-1-es_reembolsable": "on",
+            "items-1-id": "",
+        }
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 302)
+        nuevo = Requerimiento.objects.exclude(pk=self.requerimiento.pk).get()
+        primero, segundo = nuevo.items.all()
+        self.assertTrue(primero.requiere_calibracion)
+        self.assertFalse(primero.es_reembolsable)
+        self.assertFalse(segundo.requiere_calibracion)
+        self.assertTrue(segundo.es_reembolsable)
