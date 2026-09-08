@@ -46,7 +46,14 @@ class ItemInline(admin.TabularInline):
 
     model = Item
     extra = 1
-    fields = ("numero", "cantidad", "unidad_medida", "descripcion")
+    fields = (
+        "numero",
+        "cantidad",
+        "unidad_medida",
+        "descripcion",
+        "requiere_calibracion",
+        "es_reembolsable",
+    )
 
 
 @admin.register(Requerimiento)

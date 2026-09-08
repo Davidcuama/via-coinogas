@@ -21,6 +21,12 @@ reales del formset y para la plantilla vacía que el JavaScript clona al añadir
     {% for error in item.descripcion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
   </td>
   <td class="text-center align-middle">
+    {{ item.requiere_calibracion }}
+  </td>
+  <td class="text-center align-middle">
+    {{ item.es_reembolsable }}
+  </td>
+  <td class="text-center align-middle">
     <button type="button" class="btn btn-outline-danger btn-sm item-eliminar" title="Eliminar ítem">&times;</button>
   </td>
 </tr>
