@@ -1291,3 +1291,39 @@ class TotalesTests(TestCase):
             [Decimal("7500.00"), Decimal("80001.50")],
         )
         self.assertEqual(nuevo.total_estimado, Decimal("87501.50"))
+
+
+class RutaRaizTests(TestCase):
+    """La raíz del sitio lleva al formulario, no a un 404."""
+
+    def test_la_raiz_redirige_al_formulario(self):
+        respuesta = self.client.get("/")
+        self.assertRedirects(respuesta, reverse("requerimientos:crear"))
+
+    def test_la_redireccion_es_temporal(self):
+        # 302 y no 301: cuando exista la bandeja (HU-20) el destino cambia, y
+        # una redirección permanente se queda cacheada en el navegador.
+        respuesta = self.client.get("/")
+        self.assertEqual(respuesta.status_code, 302)
+
+
+class IdentidadVisualTests(TestCase):
+    """La plantilla base carga la identidad de Coinogas en todas las pantallas."""
+
+    def setUp(self):
+        self.url = reverse("requerimientos:crear")
+
+    def test_declara_el_viewport(self):
+        # Sin esta etiqueta el grid de Bootstrap no responde en celular.
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'name="viewport"')
+
+    def test_muestra_el_logo_y_el_sello_del_formato(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "logo-coinogas.png")
+        self.assertContains(respuesta, "ADM-F-22")
+
+    def test_carga_la_hoja_de_estilos_propia_despues_de_bootstrap(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn("via-compras.css", contenido)
+        self.assertLess(contenido.index("bootstrap"), contenido.index("via-compras.css"))

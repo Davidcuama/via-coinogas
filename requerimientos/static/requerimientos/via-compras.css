@@ -1,0 +1,423 @@
+/* ============================================================
+   VIA Compras · capa de identidad visual
+   ------------------------------------------------------------
+   Tokens y componentes tomados del prototipo de interfaces del
+   Sprint 0. La paleta sale del logotipo de Coinogas: el azul del
+   wordmark, el cian del degradado superior y el verde de la hoja.
+
+   Se carga DESPUÉS de Bootstrap y solo redefine lo que el
+   formulario usa. No reemplaza el framework: la maquetación de
+   fondo es HU-01 y vive en otra historia.
+   ============================================================ */
+
+:root {
+  --azul-profundo: #0b3a5d;  /* barra superior, encabezados */
+  --azul: #0078be;           /* azul corporativo del wordmark */
+  --azul-oscuro: #005a90;
+  --cian: #29b0e8;           /* degradado alto del logo, realces */
+  --verde: #009838;          /* hoja: acción principal */
+  --verde-oscuro: #007a2c;
+  --ambar: #e8a317;          /* advertencias */
+  --alerta: #c43d2e;         /* errores */
+  --niebla: #edf3f7;         /* fondo de página */
+  --papel: #ffffff;          /* superficie de tarjeta */
+  --azul-suave: #eaf5fc;
+  --verde-suave: #e8f6ec;
+  --linea: #d5e2ec;
+  --linea-fuerte: #b4c9d8;
+  --tinta: #0f2230;          /* texto principal */
+  --tinta-media: #4a6577;    /* texto secundario */
+  --tinta-suave: #7891a3;    /* placeholders */
+
+  --display: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --texto: "Public Sans", -apple-system, "Segoe UI", sans-serif;
+  --dato: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+
+  --r: 5px;
+  --r-g: 10px;
+  --sombra: 0 1px 2px rgba(11, 58, 93, 0.05), 0 6px 18px rgba(11, 58, 93, 0.07);
+}
+
+/* ---------- Base ---------- */
+
+body {
+  font-family: var(--texto);
+  background: var(--niebla);
+  color: var(--tinta);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- Barra superior ---------- */
+
+.tope {
+  background: linear-gradient(180deg, #fff, #fafdff);
+  border-bottom: 1px solid var(--linea);
+  box-shadow: 0 1px 0 rgba(41, 176, 232, 0.1);
+  padding: 0 24px;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.tope-logo {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+
+/* Sello del formato que este sistema reemplaza: ata la pantalla al
+   documento que la operación ya conoce (ADM-F-22). */
+.sello {
+  font-family: var(--dato);
+  font-size: 10.5px;
+  color: var(--azul-oscuro);
+  background: var(--azul-suave);
+  border: 1px dashed var(--linea-fuerte);
+  border-radius: 4px;
+  padding: 4px 9px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.tope-crece {
+  flex: 1;
+}
+
+.tope-app {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--azul-profundo);
+}
+
+@media (max-width: 575px) {
+  .tope {
+    padding: 10px 16px;
+  }
+  .sello {
+    order: 3;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* ---------- Banda de encabezado de pantalla ---------- */
+
+.banda {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-g);
+  background: linear-gradient(115deg, #0b3a5d 0%, #0e5486 52%, #127aa8 100%);
+  color: #fff;
+  padding: 22px 26px;
+  box-shadow: 0 6px 20px rgba(11, 58, 93, 0.18);
+}
+
+/* Burbujas de gas del logotipo, en marca de agua. */
+.banda::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='110'><g fill='none' stroke='%23ffffff' stroke-width='1.1' opacity='.5'><ellipse cx='26' cy='20' rx='17' ry='7.5' transform='rotate(-18 26 20)'/><ellipse cx='78' cy='40' rx='12' ry='5.5' transform='rotate(-24 78 40)'/><ellipse cx='122' cy='16' rx='15' ry='6.5' transform='rotate(-12 122 16)'/><ellipse cx='44' cy='72' rx='13' ry='6' transform='rotate(-28 44 72)'/><ellipse cx='104' cy='88' rx='18' ry='7.5' transform='rotate(-15 104 88)'/><ellipse cx='8' cy='96' rx='10' ry='4.5' transform='rotate(-22 8 96)'/></g></svg>");
+  background-size: 150px 110px;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.banda::before {
+  content: "";
+  position: absolute;
+  right: -40px;
+  top: -60px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 152, 56, 0.4), transparent 68%);
+  pointer-events: none;
+}
+
+.banda > * {
+  position: relative;
+  z-index: 1;
+}
+
+.banda h1 {
+  color: #fff;
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 4px 0 3px;
+}
+
+.banda .sub {
+  color: #bcdcf0;
+  font-size: 13px;
+  margin: 0;
+}
+
+.eyebrow {
+  font-family: var(--dato);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--tinta-suave);
+}
+
+.banda .eyebrow {
+  color: #8ed2f0;
+}
+
+/* ---------- Placa del consecutivo (HU-16) ---------- */
+
+.placa {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(145deg, #12507e, #0b3a5d 60%, #082c47);
+  color: #fff;
+  border: 1px solid rgba(41, 176, 232, 0.35);
+  border-radius: 4px;
+  padding: 9px 16px 9px 13px;
+  font-family: var(--dato);
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px rgba(11, 58, 93, 0.18);
+}
+
+/* Símbolo de válvula, del prototipo. */
+.placa::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: none;
+  background: var(--verde);
+  clip-path: polygon(0 0, 50% 50%, 0 100%, 100% 100%, 50% 50%, 100% 0);
+}
+
+/* ---------- Bootstrap: tarjetas ---------- */
+
+.card {
+  background: var(--papel);
+  border: 1px solid var(--linea);
+  border-radius: var(--r-g);
+  box-shadow: var(--sombra);
+}
+
+.card-header {
+  background: linear-gradient(180deg, #fafdff, #f2f8fc);
+  border-bottom: 1px solid var(--linea);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+/* Filete de color a la izquierda del título, como en el prototipo. */
+.card-header::before {
+  content: "";
+  width: 4px;
+  height: 17px;
+  border-radius: 2px;
+  flex: none;
+  background: linear-gradient(180deg, var(--cian), var(--azul));
+}
+
+.card-header h2 {
+  color: var(--azul-profundo);
+  font-size: 17px;
+  margin: 0;
+}
+
+/* ---------- Bootstrap: campos ---------- */
+
+.form-label {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--tinta);
+  margin-bottom: 5px;
+}
+
+.form-control,
+.form-select {
+  border: 1px solid var(--linea-fuerte);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  font-size: 14px;
+  color: var(--tinta);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px rgba(46, 100, 145, 0.13);
+}
+
+.form-control::placeholder {
+  color: var(--tinta-suave);
+}
+
+.form-text {
+  font-size: 11.5px;
+  color: var(--tinta-suave);
+}
+
+.form-check-input:checked {
+  background-color: var(--verde);
+  border-color: var(--verde);
+}
+
+.form-check-input:focus {
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px rgba(46, 100, 145, 0.13);
+}
+
+/* HU-15: el resaltado de campo inválido lo sigue poniendo Bootstrap
+   (`.form-control.is-invalid`), que gana por especificidad. Aquí solo se
+   alinea el color del mensaje con la paleta. */
+.invalid-feedback {
+  color: var(--alerta);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* ---------- Bootstrap: botones ---------- */
+
+.btn {
+  border-radius: var(--r);
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 9px 16px;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, #00a83e, var(--verde) 55%, var(--verde-oscuro));
+  border-color: var(--verde-oscuro);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 152, 56, 0.28);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: linear-gradient(180deg, #00b845, #00a03b 55%, #008430);
+  border-color: var(--verde-oscuro);
+}
+
+.btn-outline-secondary {
+  background: #fff;
+  border-color: var(--linea-fuerte);
+  color: var(--tinta);
+}
+
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus {
+  background: var(--azul-suave);
+  border-color: var(--azul);
+  color: var(--azul);
+}
+
+.btn-outline-danger {
+  border-color: #e9bdb7;
+  color: var(--alerta);
+}
+
+.btn-outline-danger:hover,
+.btn-outline-danger:focus {
+  background: #fcf1ef;
+  border-color: var(--alerta);
+  color: var(--alerta);
+}
+
+/* ---------- Bootstrap: tabla de ítems ---------- */
+
+.table > thead th {
+  font-family: var(--dato);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--azul-oscuro);
+  background: linear-gradient(180deg, #f4fafd, #eaf3f9);
+  border-bottom: 1px solid var(--linea);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.table > tbody td {
+  border-color: var(--linea);
+}
+
+.table > tfoot th {
+  border-top: 2px solid var(--linea-fuerte);
+  color: var(--azul-profundo);
+  font-family: var(--display);
+  font-size: 15px;
+}
+
+/* El total del ítem es un dato, no prosa: tipografía monoespaciada para
+   que las cifras queden alineadas de una fila a otra. */
+.item-total,
+#total-requerimiento {
+  font-family: var(--dato);
+  font-size: 13px;
+  color: var(--azul-profundo);
+}
+
+/* ---------- Bootstrap: avisos ---------- */
+
+.alert {
+  border-radius: var(--r);
+  font-size: 13.5px;
+}
+
+.alert-success {
+  background: var(--verde-suave);
+  border-color: #b7e2c4;
+  color: var(--verde-oscuro);
+}
+
+.alert-danger {
+  background: #fdf2f0;
+  border-color: #e9bdb7;
+  color: var(--alerta);
+}
+
+.alert-warning {
+  background: #fdf6e7;
+  border-color: #f0d69a;
+  color: #8a6110;
+}
+
+.alert-secondary,
+.alert-info {
+  background: var(--azul-suave);
+  border-color: var(--linea-fuerte);
+  color: var(--azul-oscuro);
+}
+
+/* ---------- Pie ---------- */
+
+.pie {
+  color: var(--tinta-suave);
+  font-size: 11.5px;
+  text-align: center;
+  padding: 28px 16px 20px;
+}
+
+.pie .lema {
+  font-family: var(--display);
+  color: var(--tinta-media);
+}

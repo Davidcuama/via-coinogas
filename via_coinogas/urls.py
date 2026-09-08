@@ -17,8 +17,17 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 
 urlpatterns = [
+    # La raíz lleva al formulario: hoy es la única pantalla de entrada del
+    # sistema. Redirección temporal a propósito, porque cuando exista la
+    # bandeja (HU-20) el destino cambia según el rol.
+    path(
+        "",
+        RedirectView.as_view(pattern_name="requerimientos:crear", permanent=False),
+        name="inicio",
+    ),
     path("admin/", admin.site.urls),
     path("requerimientos/", include("requerimientos.urls")),
 ]

@@ -1,19 +1,46 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  {% comment %}
+    Sin esta etiqueta el grid de Bootstrap no responde en celular, y el móvil
+    es un caso de uso central del proyecto (HU-12: foto desde el móvil).
+  {% endcomment %}
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VIA Compras</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  {# Va después de Bootstrap: solo redefine los componentes que usa el formulario. #}
+  <link href="{% static 'requerimientos/via-compras.css' %}" rel="stylesheet">
 </head>
 <body>
+
+  <header class="tope">
+    <a href="{% url 'requerimientos:crear' %}">
+      <img src="{% static 'requerimientos/logo-coinogas.png' %}"
+           alt="Coinogas S.A. E.S.P." class="tope-logo">
+    </a>
+    {# El sello ata la pantalla al documento que la operación ya conoce. #}
+    <span class="sello">FORMATO ADM-F-22 · REV. 02</span>
+    <span class="tope-crece"></span>
+    <span class="tope-app">VIA Compras</span>
+  </header>
+
   {% if messages %}
     {# Avisos del sistema (HU-18: borrador guardado o descartado). #}
-    <div class="container mt-4" style="max-width: 720px;" id="avisos">
+    <div class="container mt-4" style="max-width: 1140px;" id="avisos">
       {% for mensaje in messages %}
         <div class="alert alert-{{ mensaje.level_tag|default:'info' }} mb-2" role="alert">{{ mensaje }}</div>
       {% endfor %}
     </div>
   {% endif %}
+
   {% block content %}{% endblock %}
+
+  <footer class="pie">
+    <span class="lema">Transportando bienestar</span> · Coinogas S.A. E.S.P.
+  </footer>
 </body>
 </html>
