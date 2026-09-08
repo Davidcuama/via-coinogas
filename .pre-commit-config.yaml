@@ -1,0 +1,21 @@
+# Hooks que se ejecutan automáticamente antes de cada commit.
+# Instalar una sola vez con: pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      # Linter + estándar de nombramiento; corrige lo que es seguro corregir.
+      - id: ruff-check
+        args: [--fix]
+      # Formateador: deja el código con estilo uniforme sin intervención manual.
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key

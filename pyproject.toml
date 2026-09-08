@@ -1,0 +1,61 @@
+# Configuración de calidad del proyecto VIA Compras.
+# Ruff cubre tres frentes con una sola herramienta:
+#   - Análisis estático (linter): errores, imports, complejidad, seguridad.
+#   - Estándar de nombramiento: reglas N (pep8-naming) enforzadas automáticamente.
+#   - Formateador de código: `ruff format`, compatible con Black.
+# Justificación completa en la Wiki: "Calidad del Software".
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "staticfiles",
+    "media",
+]
+
+[tool.ruff.lint]
+# Perfil estricto: partimos del conjunto recomendado por la comunidad y sumamos
+# los plugins que aplican a un proyecto Django.
+select = [
+    "E",    # pycodestyle - errores de estilo (PEP 8)
+    "W",    # pycodestyle - advertencias de estilo (PEP 8)
+    "F",    # pyflakes - variables no usadas, imports muertos, nombres indefinidos
+    "I",    # isort - orden de imports
+    "N",    # pep8-naming - estándar de nombramiento (PEP 8)
+    "UP",   # pyupgrade - sintaxis moderna de Python
+    "B",    # flake8-bugbear - errores lógicos probables
+    "DJ",   # flake8-django - buenas prácticas de Django
+    "S",    # flake8-bandit - análisis de seguridad
+    "C4",   # flake8-comprehensions - comprensiones innecesarias
+    "SIM",  # flake8-simplify - código simplificable
+    "RUF",  # reglas propias de Ruff
+]
+ignore = [
+    # Las clases internas `Meta` de Django declaran listas/diccionarios como
+    # atributos de clase por diseño del framework; no son un error.
+    "RUF012",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Las migraciones las genera Django: no se auditan estilo ni longitud de línea.
+"*/migrations/*" = ["E501", "I001"]
+# En pruebas es aceptable usar `assert` y datos de ejemplo "hardcodeados".
+"*/tests.py" = ["S101", "S105", "S106"]
+"*/tests/*" = ["S101", "S105", "S106"]
+
+[tool.ruff.lint.pep8-naming]
+# Django usa estos nombres en atributos de clase por convención del framework.
+classmethod-decorators = ["classmethod"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["via_coinogas", "requerimientos"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
