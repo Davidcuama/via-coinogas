@@ -411,6 +411,38 @@ class ConfirmacionRadicacionTests(TestCase):
         respuesta = self.client.get(reverse("requerimientos:confirmacion", args=["REQ-2026-9999"]))
         self.assertEqual(respuesta.status_code, 404)
 
+    def test_confirmacion_resume_el_numero_de_items_radicados(self):
+        datos = self.datos | datos_items("Resma de papel carta", "Tóner negro", "Caja de esferos")
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertEqual(Requerimiento.objects.get().items.count(), 3)
+        self.assertContains(respuesta, 'id="numero-items">3<')
+
+    def test_confirmacion_lista_los_items_radicados(self):
+        datos = self.datos | datos_items("Resma de papel carta", "Tóner negro")
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertContains(respuesta, "Resma de papel carta")
+        self.assertContains(respuesta, "Tóner negro")
+
+    def test_confirmacion_muestra_el_total_estimado(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-cantidad"] = "4"
+        datos["items-0-precio_referencia"] = "25000"
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertEqual(Requerimiento.objects.get().total_estimado, Decimal("100000.00"))
+        # El proyecto corre en es-co: separador decimal de coma (ver settings).
+        self.assertContains(respuesta, 'id="total-estimado">100000,00<')
+
+    def test_confirmacion_advierte_cuando_el_total_es_parcial(self):
+        # Sin precio de referencia el total sigue siendo valido, pero incompleto.
+        respuesta = self.client.post(self.url_crear, self.datos, follow=True)
+        self.assertContains(respuesta, 'id="aviso-total-parcial"')
+
+    def test_confirmacion_no_advierte_si_todos_los_items_tienen_precio(self):
+        datos = self.datos | datos_items("Resma de papel carta")
+        datos["items-0-precio_referencia"] = "25000"
+        respuesta = self.client.post(self.url_crear, datos, follow=True)
+        self.assertNotContains(respuesta, 'id="aviso-total-parcial"')
+
 
 class BorradorRequerimientoTests(TestCase):
     """HU-18: el solicitante guarda un borrador y lo retoma después."""

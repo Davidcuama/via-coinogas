@@ -84,6 +84,11 @@ class RequerimientoConfirmacionView(DetailView):
     slug_field = "consecutivo"
     slug_url_kwarg = "consecutivo"
 
+    def get_queryset(self):
+        # HU-17: el resumen recorre los ítems y su unidad de medida; se traen de
+        # una vez para no disparar una consulta por fila.
+        return super().get_queryset().prefetch_related("items__unidad_medida")
+
 
 class GuardarBorradorView(View):
     """Guarda el borrador del formulario (HU-18).
