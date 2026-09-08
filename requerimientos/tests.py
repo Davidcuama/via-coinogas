@@ -1,6 +1,7 @@
 import smtplib
 import threading
 from datetime import date, timedelta
+from decimal import Decimal
 from unittest import mock, skipUnless
 
 from django.conf import settings
@@ -1020,3 +1021,117 @@ class ItemEspecificacionesTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(Item.objects.count(), 0)
         self.assertIn("descripcion", respuesta.context["items"].forms[0].errors)
+
+
+class TotalesTests(TestCase):
+    """Cubre HU-10 (cálculo automático de totales)."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Compras técnicas")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-800", nombre="Sede Sabaneta")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.url = reverse("requerimientos:crear")
+        self.requerimiento = Requerimiento.objects.create(
+            solicitante="Andrés Vélez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Compra de repuestos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=30),
+        )
+
+    def _item(self, numero=1, **overrides):
+        datos = {
+            "requerimiento": self.requerimiento,
+            "numero": numero,
+            "cantidad": 2,
+            "unidad_medida": self.unidad,
+            "descripcion": f"Repuesto {numero}",
+            "precio_referencia": Decimal("1500.00"),
+        }
+        datos.update(overrides)
+        return Item.objects.create(**datos)
+
+    def test_total_del_item_es_cantidad_por_precio(self):
+        item = self._item(cantidad=3, precio_referencia=Decimal("12500.50"))
+        item.refresh_from_db()
+        self.assertEqual(item.total, Decimal("37501.50"))
+
+    def test_total_del_item_se_recalcula_al_editarlo(self):
+        item = self._item(cantidad=2, precio_referencia=Decimal("1000.00"))
+        item.cantidad = 5
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.total, Decimal("5000.00"))
+
+    def test_item_sin_precio_aporta_cero(self):
+        item = self._item(precio_referencia=None)
+        item.refresh_from_db()
+        self.assertEqual(item.total, Decimal("0.00"))
+
+    def test_precio_negativo_es_invalido(self):
+        item = Item(
+            requerimiento=self.requerimiento,
+            numero=1,
+            cantidad=1,
+            unidad_medida=self.unidad,
+            descripcion="Repuesto",
+            precio_referencia=Decimal("-1.00"),
+        )
+        with self.assertRaises(ValidationError):
+            item.full_clean()
+
+    def test_total_del_requerimiento_suma_sus_items(self):
+        self._item(numero=1, cantidad=2, precio_referencia=Decimal("1500.00"))
+        self._item(numero=2, cantidad=1, precio_referencia=Decimal("300.25"))
+        self._item(numero=3, cantidad=4, precio_referencia=Decimal("10.00"))
+        self.assertEqual(self.requerimiento.total_estimado, Decimal("3340.25"))
+
+    def test_total_del_requerimiento_sin_items_es_cero(self):
+        self.assertEqual(self.requerimiento.total_estimado, Decimal("0.00"))
+
+    def test_total_del_requerimiento_se_ajusta_al_eliminar_un_item(self):
+        self._item(numero=1, cantidad=1, precio_referencia=Decimal("100.00"))
+        segundo = self._item(numero=2, cantidad=1, precio_referencia=Decimal("400.00"))
+        segundo.delete()
+        self.assertEqual(self.requerimiento.total_estimado, Decimal("100.00"))
+
+    def test_requerimiento_avisa_si_algun_item_no_tiene_precio(self):
+        self._item(numero=1, precio_referencia=Decimal("100.00"))
+        self.assertFalse(self.requerimiento.tiene_items_sin_precio)
+        self._item(numero=2, precio_referencia=None)
+        self.assertTrue(self.requerimiento.tiene_items_sin_precio)
+
+    def test_totales_se_calculan_al_radicar_desde_el_formulario(self):
+        datos = {
+            "solicitante": "Andrés Vélez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Compra de repuestos.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": date.today() + timedelta(days=30),
+            "items-TOTAL_FORMS": "2",
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "1",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-cantidad": "3",
+            "items-0-unidad_medida": self.unidad.pk,
+            "items-0-descripcion": "Empaque",
+            "items-0-precio_referencia": "2500",
+            "items-0-id": "",
+            "items-1-cantidad": "2",
+            "items-1-unidad_medida": self.unidad.pk,
+            "items-1-descripcion": "Sello mecánico",
+            "items-1-precio_referencia": "40000.75",
+            "items-1-id": "",
+        }
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 302)
+        nuevo = Requerimiento.objects.exclude(pk=self.requerimiento.pk).get()
+        self.assertEqual(
+            list(nuevo.items.values_list("total", flat=True)),
+            [Decimal("7500.00"), Decimal("80001.50")],
+        )
+        self.assertEqual(nuevo.total_estimado, Decimal("87501.50"))

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4" style="max-width: 960px;">
+<div class="container mt-4" style="max-width: 1140px;">
   <h1 class="mb-1">Nuevo requerimiento de compra</h1>
   <p class="text-muted mb-4">Todos los campos son obligatorios.</p>
 
@@ -97,6 +97,8 @@
           <th style="width: 6rem;">Cantidad</th>
           <th style="width: 9rem;">Unidad</th>
           <th>Descripción</th>
+          <th style="width: 9rem;">Precio unitario</th>
+          <th style="width: 9rem;" class="text-end">Total</th>
           <th style="width: 4rem;" class="text-center" title="Requiere certificado de calibración">Calib.</th>
           <th style="width: 4rem;" class="text-center" title="La compra es reembolsable">Reemb.</th>
           <th style="width: 3rem;"></th>
@@ -107,7 +109,18 @@
           {% include "requerimientos/_fila_item.html" with item=item %}
         {% endfor %}
       </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5" class="text-end">Total estimado del requerimiento</th>
+          <th class="text-end"><span id="total-requerimiento">0</span></th>
+          <th colspan="3"></th>
+        </tr>
+      </tfoot>
     </table>
+
+    <p class="form-text" id="aviso-total-parcial" hidden>
+      Hay ítems sin precio de referencia: el total mostrado es parcial.
+    </p>
 
     <template id="plantilla-item">
       {% include "requerimientos/_fila_item.html" with item=items.empty_form %}
@@ -234,6 +247,54 @@
     });
 
     renumerar();
+  });
+</script>
+
+<script>
+  // HU-10: total por ítem y total del requerimiento, calculados en vivo.
+  // El backend vuelve a calcularlos al guardar: esto es solo ayuda visual.
+  document.addEventListener("DOMContentLoaded", function () {
+    var cuerpo = document.getElementById("items-cuerpo");
+    var totalGeneral = document.getElementById("total-requerimiento");
+    var aviso = document.getElementById("aviso-total-parcial");
+    if (!cuerpo || !totalGeneral) return;
+
+    var moneda = new Intl.NumberFormat("es-CO", {
+      style: "currency", currency: "COP", maximumFractionDigits: 0,
+    });
+
+    function calcularTotales() {
+      var suma = 0;
+      var faltaPrecio = false;
+
+      Array.prototype.forEach.call(cuerpo.querySelectorAll(".item-fila"), function (fila) {
+        if (fila.classList.contains("d-none")) return;
+
+        var cantidad = parseFloat((fila.querySelector(".item-cantidad") || {}).value) || 0;
+        var campoPrecio = fila.querySelector(".item-precio");
+        var precio = parseFloat((campoPrecio || {}).value);
+        var celda = fila.querySelector(".item-total");
+
+        if (isNaN(precio)) {
+          if (cantidad > 0) faltaPrecio = true;
+          precio = 0;
+        }
+
+        var total = cantidad * precio;
+        suma += total;
+        if (celda) celda.textContent = moneda.format(total);
+      });
+
+      totalGeneral.textContent = moneda.format(suma);
+      if (aviso) aviso.hidden = !faltaPrecio;
+    }
+
+    cuerpo.addEventListener("input", calcularTotales);
+    cuerpo.addEventListener("click", function () { setTimeout(calcularTotales, 0); });
+    document.getElementById("agregar-item").addEventListener("click", function () {
+      setTimeout(calcularTotales, 0);
+    });
+    calcularTotales();
   });
 </script>
 

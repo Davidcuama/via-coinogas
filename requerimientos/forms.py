@@ -135,12 +135,19 @@ class ItemForm(forms.ModelForm):
             "unidad_medida",
             "descripcion",
             "especificaciones_tecnicas",
+            "precio_referencia",
             "requiere_calibracion",
             "es_reembolsable",
         ]
         widgets = {
             # min=1 en el HTML acompaña al validador del modelo (HU-07).
-            "cantidad": forms.NumberInput(attrs={"class": "form-control", "min": 1, "step": 1}),
+            "cantidad": forms.NumberInput(
+                attrs={
+                    "class": "form-control item-cantidad",
+                    "min": 1,
+                    "step": 1,
+                }
+            ),
             "unidad_medida": forms.Select(attrs={"class": "form-select"}),
             "descripcion": forms.Textarea(
                 attrs={
@@ -155,6 +162,15 @@ class ItemForm(forms.ModelForm):
                     "class": "form-control",
                     "rows": 3,
                     "placeholder": "Marca, modelo, referencia, rango, material, norma…",
+                }
+            ),
+            # HU-10: el total no se digita, se calcula; aquí solo entra el precio.
+            "precio_referencia": forms.NumberInput(
+                attrs={
+                    "class": "form-control item-precio",
+                    "min": 0,
+                    "step": "0.01",
+                    "placeholder": "Opcional",
                 }
             ),
             # HU-08: marcas opcionales, sin valor obligatorio.
@@ -179,7 +195,12 @@ class ItemForm(forms.ModelForm):
         """
         if self.instance.pk:
             return super().has_changed()
-        significativos = ("cantidad", "descripcion", "especificaciones_tecnicas")
+        significativos = (
+            "cantidad",
+            "descripcion",
+            "especificaciones_tecnicas",
+            "precio_referencia",
+        )
         return any(campo in self.changed_data for campo in significativos)
 
     def clean_descripcion(self):
