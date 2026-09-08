@@ -1,13 +1,18 @@
+import smtplib
 import threading
 from datetime import date, timedelta
-from unittest import skipUnless
+from unittest import mock, skipUnless
 
+from django.conf import settings
+from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
-from django.test import Client, TestCase, TransactionTestCase
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from . import notificaciones
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import CAMPOS_OBLIGATORIOS, RequerimientoForm
 from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
@@ -488,3 +493,99 @@ class BorradorRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url_crear)
         self.assertContains(respuesta, f'formaction="{self.url_guardar}"')
         self.assertContains(respuesta, "formnovalidate")
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "analista@coinogas.com"])
+class NotificacionAreaComprasTests(TestCase):
+    """HU-19: el área de compras recibe un correo cuando se radica un requerimiento."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url_crear = reverse("requerimientos:crear")
+        self.datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+        }
+
+    def _radicar(self, datos=None):
+        """Radica y ejecuta los avisos diferidos con `transaction.on_commit`."""
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url_crear, datos or self.datos)
+
+    def test_radicar_envia_el_aviso_al_area_de_compras(self):
+        self._radicar()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["compras@coinogas.com", "analista@coinogas.com"])
+
+    def test_el_asunto_identifica_el_requerimiento_y_su_prioridad(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        self.assertIn(requerimiento.consecutivo, mail.outbox[0].subject)
+        self.assertIn("Alta", mail.outbox[0].subject)
+
+    def test_el_cuerpo_resume_el_requerimiento(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        cuerpo = mail.outbox[0].body
+        self.assertIn(requerimiento.consecutivo, cuerpo)
+        self.assertIn("Ana Gómez", cuerpo)
+        self.assertIn("Mantenimiento", cuerpo)
+        self.assertIn("CC-100", cuerpo)
+        self.assertIn("Reposición de insumos de oficina.", cuerpo)
+        self.assertIn(requerimiento.fecha_requerida.strftime("%d/%m/%Y"), cuerpo)
+
+    def test_el_correo_lleva_version_html_ademas_de_texto_plano(self):
+        self._radicar()
+        alternativas = mail.outbox[0].alternatives
+        self.assertEqual(len(alternativas), 1)
+        contenido, tipo = alternativas[0].content, alternativas[0].mimetype
+        self.assertEqual(tipo, "text/html")
+        self.assertIn(Requerimiento.objects.get().consecutivo, contenido)
+
+    def test_el_remitente_es_el_configurado(self):
+        self._radicar()
+        self.assertEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+
+    def test_un_envio_incompleto_no_notifica(self):
+        # HU-15 bloquea la radicación: no hay nada que avisar.
+        respuesta = self._radicar(self.datos | {"solicitante": ""})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_cada_radicacion_genera_un_solo_aviso(self):
+        self._radicar()
+        self._radicar()
+        self.assertEqual(Requerimiento.objects.count(), 2)
+        self.assertEqual(len(mail.outbox), 2)
+
+    @override_settings(COMPRAS_EMAILS=[])
+    def test_sin_buzones_configurados_no_se_envia_pero_se_radica(self):
+        with self.assertLogs("requerimientos.notificaciones", level="WARNING") as registro:
+            self._radicar()
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("COMPRAS_EMAILS", registro.output[0])
+
+    def test_una_falla_del_servidor_de_correo_no_tumba_la_radicacion(self):
+        # El requerimiento ya está guardado con su consecutivo: el solicitante
+        # debe ver su confirmación aunque el SMTP esté caído.
+        smtp_caido = mock.patch.object(
+            EmailMultiAlternatives, "send", side_effect=smtplib.SMTPException("SMTP caído")
+        )
+        with smtp_caido, self.assertLogs("requerimientos.notificaciones", level="ERROR"):
+            respuesta = self._radicar()
+
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+
+    def test_destinatarios_ignora_entradas_vacias(self):
+        with override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "  ", ""]):
+            self.assertEqual(notificaciones.destinatarios(), ["compras@coinogas.com"])

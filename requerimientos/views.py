@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views import View
@@ -7,6 +8,7 @@ from django.views.generic import CreateView, DetailView
 from . import borradores
 from .forms import RequerimientoForm
 from .models import Requerimiento
+from .notificaciones import notificar_radicacion
 
 
 class RequerimientoCreateView(CreateView):
@@ -31,6 +33,11 @@ class RequerimientoCreateView(CreateView):
         respuesta = super().form_valid(form)
         # HU-18: el borrador cumplió su función, el requerimiento ya quedó radicado.
         borradores.descartar(self.request.session)
+        # HU-19: el aviso al área de compras se dispara solo si la transacción
+        # llegó a confirmarse; si la radicación se deshace, no se avisa de un
+        # requerimiento que no existe.
+        requerimiento = self.object
+        transaction.on_commit(lambda: notificar_radicacion(requerimiento))
         return respuesta
 
     def get_success_url(self):

@@ -37,10 +37,11 @@ El **backlog** vive en las [Issues](../../issues), etiquetadas por épica y prio
 
 | Capa | Tecnología |
 |---|---|
-| Backend | Django 5 (Python) |
+| Backend | Django 6 (Python) |
 | Base de datos | PostgreSQL |
 | Frontend | Plantillas de Django + Bootstrap 5 |
 | Imágenes | Pillow |
+| Correo | SMTP (aviso automático al área de compras) |
 | Analítica | Vistas SQL de solo lectura + Microsoft Power BI |
 | Despliegue | Docker |
 
@@ -72,6 +73,13 @@ python manage.py runserver
 ```
 
 Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.
+
+### Correo
+
+Las notificaciones al área de compras (HU-19) se configuran en `.env`. Si `EMAIL_HOST` queda
+vacío, los correos se imprimen en la consola del servidor y el flujo se puede probar completo
+sin credenciales. Los buzones que reciben el aviso se listan en `COMPRAS_EMAILS`, separados por
+coma; si no hay ninguno, la radicación funciona igual y la omisión queda registrada en el log.
 
 ## Calidad del código
 
