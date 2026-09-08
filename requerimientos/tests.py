@@ -5,9 +5,10 @@ from unittest import skipUnless
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 from django.utils import timezone
 
-from .forms import RequerimientoForm
+from .forms import CAMPOS_OBLIGATORIOS, RequerimientoForm
 from .models import Area, CentroCosto, Prioridad, Requerimiento, SecuenciaRadicacion
 
 
@@ -234,3 +235,84 @@ class ConsecutivoConcurrenciaTests(TransactionTestCase):
         self.assertEqual(len(resultados), self.HILOS)
         self.assertEqual(len(set(resultados)), self.HILOS, "Se repitió un consecutivo")
         self.assertEqual(SecuenciaRadicacion.objects.get().ultimo_numero, self.HILOS)
+
+
+class ValidacionCamposObligatoriosTests(TestCase):
+    """HU-15: el sistema impide radicar un requerimiento incompleto y señala qué falta."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos_validos(self, **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_todos_los_campos_del_formato_son_obligatorios(self):
+        form = RequerimientoForm()
+        for nombre in CAMPOS_OBLIGATORIOS:
+            with self.subTest(campo=nombre):
+                self.assertTrue(form.fields[nombre].required)
+
+    def test_cada_campo_vacio_por_separado_bloquea_el_envio(self):
+        # Se prueba el envío con cada campo obligatorio vacío, uno a la vez.
+        for nombre in CAMPOS_OBLIGATORIOS:
+            with self.subTest(campo=nombre):
+                respuesta = self.client.post(self.url, self._datos_validos(**{nombre: ""}))
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(Requerimiento.objects.count(), 0)
+                self.assertEqual(list(respuesta.context["form"].errors), [nombre])
+
+    def test_campo_solo_con_espacios_se_considera_vacio(self):
+        respuesta = self.client.post(self.url, self._datos_validos(solicitante="   "))
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertIn("solicitante", respuesta.context["form"].errors)
+
+    def test_campo_faltante_se_resalta_y_muestra_que_se_espera(self):
+        respuesta = self.client.post(self.url, self._datos_validos(justificacion=""))
+        form = respuesta.context["form"]
+        self.assertIn("is-invalid", form.fields["justificacion"].widget.attrs["class"])
+        self.assertEqual(form.errors["justificacion"], ["Este campo es obligatorio."])
+        self.assertContains(respuesta, 'id="resumen-errores"')
+        self.assertContains(respuesta, "Justificación")
+
+    def test_campo_de_lista_vacio_pide_seleccionar_una_opcion(self):
+        respuesta = self.client.post(self.url, self._datos_validos(area=""))
+        self.assertEqual(
+            respuesta.context["form"].errors["area"], ["Selecciona una opción de la lista."]
+        )
+
+    def test_informacion_diligenciada_se_conserva_cuando_falla_la_validacion(self):
+        respuesta = self.client.post(self.url, self._datos_validos(fecha_requerida=""))
+        self.assertContains(respuesta, 'value="Ana Gómez"')
+        self.assertContains(respuesta, "Reposición de insumos de oficina.")
+        self.assertContains(respuesta, f'<option value="{self.area.pk}" selected>')
+
+    def test_validacion_aplica_a_peticiones_directas_sin_navegador(self):
+        # El cliente de pruebas envía el POST sin pasar por el formulario HTML,
+        # equivalente a omitir la validación del navegador.
+        respuesta = self.client.post(self.url, {})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertEqual(set(respuesta.context["form"].errors), set(CAMPOS_OBLIGATORIOS))
+
+    def test_formulario_en_blanco_marca_los_campos_como_required_en_html(self):
+        respuesta = self.client.get(self.url)
+        for nombre in CAMPOS_OBLIGATORIOS:
+            with self.subTest(campo=nombre):
+                self.assertRegex(respuesta.content.decode(), rf'name="{nombre}"[^>]*\brequired\b')
+
+    def test_envio_completo_crea_el_requerimiento(self):
+        respuesta = self.client.post(self.url, self._datos_validos())
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Requerimiento.objects.count(), 1)

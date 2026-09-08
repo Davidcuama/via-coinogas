@@ -166,8 +166,9 @@ class Requerimiento(models.Model):
         super().clean()
         errores = {}
 
-        # HU-03: la justificación no puede quedar vacía (ni solo espacios).
-        if self.justificacion is not None and not self.justificacion.strip():
+        # HU-03: la justificación no puede ser solo espacios. La cadena vacía ya la
+        # rechaza la validación de campo (blank=False); no se duplica el mensaje.
+        if self.justificacion and not self.justificacion.strip():
             errores["justificacion"] = "La justificación no puede quedar vacía."
 
         # HU-05: la fecha requerida no puede ser anterior a la fecha de solicitud.
