@@ -68,11 +68,20 @@ pip install -r requirements-dev.txt
 cp .env.example .env                                # ajustar credenciales de PostgreSQL
 pre-commit install                                  # activa Ruff antes de cada commit
 python manage.py migrate
-python manage.py cargar_catalogos
+python manage.py cargar_catalogos                   # prioridades y unidades de medida
+python manage.py crear_perfiles --con-demo          # perfiles y una cuenta de cada uno
 python manage.py runserver
 ```
 
+**Requiere Python 3.12 o superior**, porque Django 6 no admite versiones anteriores.
+
+`crear_perfiles` crea los tres grupos de perfil. Con `--con-demo` agrega además una cuenta
+por perfil e imprime sus contraseñas una sola vez: úsalas solo en desarrollo. Las áreas y los
+centros de costo se cargan desde `/admin`, porque dependen de la información real de Coinogas.
+
 Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.
+
+Los casos de prueba funcionales del sprint están en **[TESTING.md](TESTING.md)**.
 
 ### Correo
 
