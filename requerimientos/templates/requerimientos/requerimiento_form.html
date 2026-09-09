@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 1140px;">
+  <h1 class="mb-1">Nuevo requerimiento de compra</h1>
+  <p class="text-muted mb-4">Todos los campos son obligatorios.</p>
+
+  {% if form.errors %}
+    <div class="alert alert-danger" role="alert" id="resumen-errores">
+      <strong>No se pudo radicar el requerimiento.</strong>
+      Revisa los campos marcados:
+      <ul class="mb-0">
+        {% for etiqueta in form.campos_con_error %}<li>{{ etiqueta }}</li>{% endfor %}
+        {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {# HU-18: aviso de que el formulario se abrió con un borrador guardado antes. #}
+  {# Va fuera del formulario de radicación: el descarte es su propio envío. #}
+  {% if borrador %}
+    <div class="alert alert-secondary d-flex justify-content-between align-items-center"
+         role="alert" id="aviso-borrador">
+      <div>
+        <strong>Retomaste un borrador.</strong>
+        Guardado el {{ borrador.guardado_en|date:"d/m/Y" }} a las {{ borrador.guardado_en|time:"H:i" }}
+        con {{ borrador.campos_diligenciados }} campo{{ borrador.campos_diligenciados|pluralize }} diligenciado{{ borrador.campos_diligenciados|pluralize }}{% if borrador.items %} y {{ borrador.items }} ítem{{ borrador.items|pluralize }}{% endif %}.
+      </div>
+      <form method="post" action="{% url 'requerimientos:descartar_borrador' %}" class="ms-3">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary" id="descartar-borrador">
+          Descartar
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
+  {# HU-15: `needs-validation` activa la retroalimentación inmediata de Bootstrap en el navegador. #}
+  {# El servidor valida de todas formas: es la fuente de verdad. #}
+  <form method="post" class="needs-validation" novalidate>
+    {% csrf_token %}
+
+    <div class="mb-3">
+      <label for="{{ form.solicitante.id_for_label }}" class="form-label">Nombre del solicitante</label>
+      {{ form.solicitante }}
+      {% for error in form.solicitante.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Este campo es obligatorio.</div>{% endfor %}
+    </div>
+
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.area.id_for_label }}" class="form-label">Área o proyecto</label>
+        {{ form.area }}
+        {% for error in form.area.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Selecciona una opción de la lista.</div>{% endfor %}
+      </div>
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.centro_costo.id_for_label }}" class="form-label">Centro de costo</label>
+        {{ form.centro_costo }}
+        {% for error in form.centro_costo.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Selecciona una opción de la lista.</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label for="{{ form.justificacion.id_for_label }}" class="form-label">Justificación</label>
+      {{ form.justificacion }}
+      <div class="form-text">
+        <span id="contador-justificacion">0</span>/{{ form.justificacion.field.max_length }} caracteres
+      </div>
+      {% for error in form.justificacion.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Este campo es obligatorio.</div>{% endfor %}
+    </div>
+
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.prioridad.id_for_label }}" class="form-label">Prioridad</label>
+        {{ form.prioridad }}
+        {% for error in form.prioridad.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Selecciona una opción de la lista.</div>{% endfor %}
+      </div>
+      <div class="col-md-6 mb-3">
+        <label for="{{ form.fecha_requerida.id_for_label }}" class="form-label">Fecha requerida de recepción</label>
+        {{ form.fecha_requerida }}
+        {% for error in form.fecha_requerida.errors %}<div class="invalid-feedback">{{ error }}</div>{% empty %}<div class="invalid-feedback">Este campo es obligatorio.</div>{% endfor %}
+      </div>
+    </div>
+
+    <hr class="my-4">
+
+    <h2 class="h5 mb-3">Ítems del requerimiento</h2>
+
+    {{ items.management_form }}
+    {% for error in items.non_form_errors %}
+      <div class="alert alert-danger">{{ error }}</div>
+    {% endfor %}
+
+    <table class="table table-sm align-middle" id="tabla-items">
+      <thead>
+        <tr>
+          <th style="width: 3rem;" class="text-center">N.º</th>
+          <th style="width: 6rem;">Cantidad</th>
+          <th style="width: 9rem;">Unidad</th>
+          <th>Descripción</th>
+          <th style="width: 9rem;">Precio unitario</th>
+          <th style="width: 9rem;" class="text-end">Total</th>
+          <th style="width: 4rem;" class="text-center" title="Requiere certificado de calibración">Calib.</th>
+          <th style="width: 4rem;" class="text-center" title="La compra es reembolsable">Reemb.</th>
+          <th style="width: 3rem;"></th>
+        </tr>
+      </thead>
+      <tbody id="items-cuerpo">
+        {% for item in items %}
+          {% include "requerimientos/_fila_item.html" with item=item %}
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5" class="text-end">Total estimado del requerimiento</th>
+          <th class="text-end"><span id="total-requerimiento">0</span></th>
+          <th colspan="3"></th>
+        </tr>
+      </tfoot>
+    </table>
+
+    <p class="form-text" id="aviso-total-parcial" hidden>
+      Hay ítems sin precio de referencia: el total mostrado es parcial.
+    </p>
+
+    <template id="plantilla-item">
+      {% include "requerimientos/_fila_item.html" with item=items.empty_form %}
+    </template>
+
+    <button type="button" class="btn btn-outline-secondary btn-sm mb-4" id="agregar-item">
+      + Agregar ítem
+    </button>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
+      {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
+      <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
+              formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
+        Guardar borrador
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // HU-15: validación en el navegador (retroalimentación inmediata). Al intentar
+  // enviar con campos vacíos, Bootstrap resalta cada campo faltante con su mensaje.
+  document.addEventListener("DOMContentLoaded", function () {
+    var formulario = document.querySelector("form.needs-validation");
+    if (formulario) {
+      formulario.addEventListener("submit", function (evento) {
+        // HU-18: guardar el borrador no pasa por la validación de campos
+        // obligatorios; el borrador es incompleto por definición.
+        var boton = evento.submitter;
+        if (boton && boton.hasAttribute("formnovalidate")) return;
+
+        if (!formulario.checkValidity()) {
+          evento.preventDefault();
+          evento.stopPropagation();
+          var primerInvalido = formulario.querySelector(":invalid");
+          if (primerInvalido) primerInvalido.focus();
+        }
+        formulario.classList.add("was-validated");
+      });
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var textarea = document.getElementById("id_justificacion");
+    var contador = document.getElementById("contador-justificacion");
+    if (!textarea || !contador) return;
+
+    function actualizarContador() {
+      contador.textContent = textarea.value.length;
+    }
+    textarea.addEventListener("input", actualizarContador);
+    actualizarContador();
+  });
+</script>
+
+<script>
+  // HU-06: alta y baja de filas de ítems sin recargar la página.
+  document.addEventListener("DOMContentLoaded", function () {
+    var cuerpo = document.getElementById("items-cuerpo");
+    var plantilla = document.getElementById("plantilla-item");
+    var botonAgregar = document.getElementById("agregar-item");
+    var totalForms = document.getElementById("id_items-TOTAL_FORMS");
+    if (!cuerpo || !plantilla || !botonAgregar || !totalForms) return;
+
+    function filasVisibles() {
+      return Array.prototype.filter.call(
+        cuerpo.querySelectorAll(".item-fila"),
+        function (fila) { return !fila.classList.contains("d-none"); }
+      );
+    }
+
+    // Reescribe los índices del formset para que queden 0..N-1 sin huecos.
+    function reindexar() {
+      var filas = cuerpo.querySelectorAll(".item-fila");
+      Array.prototype.forEach.call(filas, function (fila, indice) {
+        Array.prototype.forEach.call(fila.querySelectorAll("input, select, textarea, label"), function (campo) {
+          ["name", "id", "for"].forEach(function (atributo) {
+            var valor = campo.getAttribute(atributo);
+            if (valor) {
+              campo.setAttribute(atributo, valor.replace(/items-(\d+|__prefix__)-/, "items-" + indice + "-"));
+            }
+          });
+        });
+      });
+      totalForms.value = filas.length;
+    }
+
+    // La numeración visible siempre va de 1 en adelante (HU-06).
+    function renumerar() {
+      filasVisibles().forEach(function (fila, indice) {
+        var celda = fila.querySelector(".item-numero");
+        if (celda) celda.textContent = indice + 1;
+      });
+    }
+
+    botonAgregar.addEventListener("click", function () {
+      var fila = plantilla.content.firstElementChild.cloneNode(true);
+      cuerpo.appendChild(fila);
+      reindexar();
+      renumerar();
+    });
+
+    cuerpo.addEventListener("click", function (evento) {
+      var boton = evento.target.closest(".item-eliminar");
+      if (!boton) return;
+
+      // Siempre debe quedar al menos un ítem (HU-06).
+      if (filasVisibles().length <= 1) return;
+
+      var fila = boton.closest(".item-fila");
+      var idGuardado = fila.querySelector('input[name$="-id"]');
+      var casillaBorrar = fila.querySelector('input[name$="-DELETE"]');
+
+      if (idGuardado && idGuardado.value && casillaBorrar) {
+        // Ítem ya guardado: se marca para borrar y se oculta.
+        casillaBorrar.checked = true;
+        fila.classList.add("d-none");
+      } else {
+        fila.remove();
+        reindexar();
+      }
+      renumerar();
+    });
+
+    renumerar();
+  });
+</script>
+
+<script>
+  // HU-10: total por ítem y total del requerimiento, calculados en vivo.
+  // El backend vuelve a calcularlos al guardar: esto es solo ayuda visual.
+  document.addEventListener("DOMContentLoaded", function () {
+    var cuerpo = document.getElementById("items-cuerpo");
+    var totalGeneral = document.getElementById("total-requerimiento");
+    var aviso = document.getElementById("aviso-total-parcial");
+    if (!cuerpo || !totalGeneral) return;
+
+    var moneda = new Intl.NumberFormat("es-CO", {
+      style: "currency", currency: "COP", maximumFractionDigits: 0,
+    });
+
+    function calcularTotales() {
+      var suma = 0;
+      var faltaPrecio = false;
+
+      Array.prototype.forEach.call(cuerpo.querySelectorAll(".item-fila"), function (fila) {
+        if (fila.classList.contains("d-none")) return;
+
+        var cantidad = parseFloat((fila.querySelector(".item-cantidad") || {}).value) || 0;
+        var campoPrecio = fila.querySelector(".item-precio");
+        var precio = parseFloat((campoPrecio || {}).value);
+        var celda = fila.querySelector(".item-total");
+
+        if (isNaN(precio)) {
+          if (cantidad > 0) faltaPrecio = true;
+          precio = 0;
+        }
+
+        var total = cantidad * precio;
+        suma += total;
+        if (celda) celda.textContent = moneda.format(total);
+      });
+
+      totalGeneral.textContent = moneda.format(suma);
+      if (aviso) aviso.hidden = !faltaPrecio;
+    }
+
+    cuerpo.addEventListener("input", calcularTotales);
+    cuerpo.addEventListener("click", function () { setTimeout(calcularTotales, 0); });
+    document.getElementById("agregar-item").addEventListener("click", function () {
+      setTimeout(calcularTotales, 0);
+    });
+    calcularTotales();
+  });
+</script>
+
+{% endblock %}
