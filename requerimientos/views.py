@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.db import transaction
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DetailView
@@ -123,3 +123,8 @@ class DescartarBorradorView(View):
         if borradores.descartar(request.session):
             messages.info(request, "Borrador descartado.")
         return redirect("requerimientos:crear")
+
+
+def prototipo_interactivo_view(request):
+    """Renderiza el prototipo interactivo de diseño y flujo de VIA Compras (Sprint 0 / UI)."""
+    return render(request, "requerimientos/prototipo.html")
