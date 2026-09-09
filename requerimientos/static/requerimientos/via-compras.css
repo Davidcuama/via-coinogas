@@ -421,3 +421,422 @@ h1, h2, h3, h4 {
   font-family: var(--display);
   color: var(--tinta-media);
 }
+
+/* ============================================================
+   Portada e ingreso
+   ------------------------------------------------------------
+   Pantallas públicas, con el fondo profundo del prototipo. No
+   llevan la barra superior de la aplicación: quien llega aquí
+   todavía no tiene sesión.
+   ============================================================ */
+
+.portada {
+  --burbujas: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='110'><g fill='none' stroke='%23ffffff' stroke-width='1.1' opacity='.5'><ellipse cx='26' cy='20' rx='17' ry='7.5' transform='rotate(-18 26 20)'/><ellipse cx='78' cy='40' rx='12' ry='5.5' transform='rotate(-24 78 40)'/><ellipse cx='122' cy='16' rx='15' ry='6.5' transform='rotate(-12 122 16)'/><ellipse cx='44' cy='72' rx='13' ry='6' transform='rotate(-28 44 72)'/><ellipse cx='104' cy='88' rx='18' ry='7.5' transform='rotate(-15 104 88)'/><ellipse cx='8' cy='96' rx='10' ry='4.5' transform='rotate(-22 8 96)'/></g></svg>");
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  padding: 44px 20px;
+  background:
+    radial-gradient(900px 520px at 78% -10%, rgba(0, 152, 56, 0.3), transparent 62%),
+    radial-gradient(700px 480px at 8% 105%, rgba(41, 176, 232, 0.26), transparent 60%),
+    linear-gradient(158deg, #08293f 0%, #0b3a5d 42%, #0e5486 100%);
+}
+
+.portada .textura {
+  position: absolute;
+  inset: 0;
+  background-image: var(--burbujas);
+  background-size: 150px 110px;
+  opacity: 0.13;
+  pointer-events: none;
+}
+
+.burbujas-anim {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.burbujas-anim i {
+  position: absolute;
+  bottom: -70px;
+  display: block;
+  border-radius: 50%;
+  border: 1px solid rgba(41, 176, 232, 0.34);
+  background: rgba(41, 176, 232, 0.05);
+  transform: rotate(-18deg);
+  animation: sube-burbuja linear infinite;
+}
+
+@keyframes sube-burbuja {
+  0% { transform: translateY(0) scale(0.7); opacity: 0; }
+  12% { opacity: 0.85; }
+  100% { transform: translateY(-112vh) scale(1.25); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .burbujas-anim i { animation: none; }
+}
+
+.portada-caja {
+  max-width: 980px;
+  width: 100%;
+  position: relative;
+  z-index: 2;
+}
+
+.cabecera-marca {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 30px;
+}
+
+.logo-plato {
+  background: #fff;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: inline-flex;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+}
+
+.portada-logo {
+  width: 190px;
+  height: auto;
+  display: block;
+}
+
+.divisor {
+  width: 1px;
+  height: 46px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.rotulo {
+  font-family: var(--display);
+  letter-spacing: 0.2em;
+  font-size: 15px;
+  color: #8ed2f0;
+  text-transform: uppercase;
+}
+
+.rotulo b {
+  display: block;
+  color: #fff;
+  font-size: 22px;
+  letter-spacing: 0.13em;
+}
+
+.portada h1 {
+  font-size: clamp(36px, 6.2vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.015em;
+  margin: 0 0 16px;
+  color: #fff;
+}
+
+/* El degradado va sobre el texto: es el mismo salto de cian a verde del
+   logotipo, y cae justo en la palabra que carga el argumento. */
+.portada h1 em {
+  font-style: normal;
+  background: linear-gradient(100deg, var(--cian), #5be08a);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.portada .lead {
+  max-width: 580px;
+  color: #b6d6ea;
+  font-size: 15.5px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.portada-acciones {
+  margin-top: 26px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.portada-nota {
+  color: #7fb4d2;
+  font-size: 12.5px;
+}
+
+.perfiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.p-carta {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 22px;
+  position: relative;
+  overflow: hidden;
+}
+
+.p-carta::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--cian), var(--verde));
+}
+
+.p-carta h3 {
+  font-size: 19px;
+  margin: 0 0 6px;
+  color: #fff;
+}
+
+.p-carta p {
+  margin: 0;
+  font-size: 12.5px;
+  color: #a8c8dc;
+  line-height: 1.5;
+}
+
+.p-carta .glifo {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  margin-bottom: 12px;
+  font-size: 17px;
+  background: linear-gradient(145deg, rgba(41, 176, 232, 0.3), rgba(0, 152, 56, 0.28));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.portada-pie {
+  margin-top: 34px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--dato);
+  font-size: 11px;
+  color: #7fb4d2;
+  letter-spacing: 0.05em;
+}
+
+.portada-pie .lema {
+  font-family: var(--display);
+  font-size: 15px;
+  color: #8cc9e8;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Ingreso ---------- */
+
+.ingreso-caja {
+  width: 100%;
+  max-width: 420px;
+  position: relative;
+  z-index: 2;
+}
+
+.ingreso-logo {
+  width: 150px;
+  height: auto;
+  display: block;
+}
+
+.ingreso-caja .cabecera-marca {
+  justify-content: center;
+  margin-bottom: 22px;
+}
+
+.ingreso-volver {
+  text-align: center;
+  margin: 18px 0 0;
+  font-size: 13px;
+}
+
+.ingreso-volver a {
+  color: #8ed2f0;
+  text-decoration: none;
+}
+
+.ingreso-volver a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+@media (max-width: 767px) {
+  .perfiles {
+    grid-template-columns: 1fr;
+  }
+  .portada-logo {
+    width: 150px;
+  }
+}
+
+/* ============================================================
+   Barra superior: navegación y usuario
+   ============================================================ */
+
+.tope-nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tope-nav a {
+  color: var(--tinta-media);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--r);
+}
+
+.tope-nav a:hover {
+  background: var(--azul-suave);
+  color: var(--azul);
+}
+
+.perfil {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex: none;
+  background: linear-gradient(145deg, #12507e, var(--azul-profundo));
+  color: #fff;
+  font-family: var(--dato);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.perfil-datos {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.perfil-nombre {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.perfil-rol {
+  font-size: 11.5px;
+  color: var(--tinta-media);
+}
+
+@media (max-width: 767px) {
+  .perfil-datos {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Listas de requerimientos (bandeja y consulta propia)
+   ============================================================ */
+
+.banda-fila {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.banda-texto {
+  flex: 1;
+  min-width: 220px;
+}
+
+.card-header .mini {
+  margin-left: auto;
+}
+
+/* Los datos tabulares van en monoespaciada para que las cifras y las fechas
+   queden alineadas de una fila a otra. */
+.table .dato {
+  font-family: var(--dato);
+  font-size: 12.5px;
+}
+
+/* Variante clara de la placa, para usarla como enlace dentro de una tabla. */
+.placa.clara {
+  background: #fff;
+  color: var(--azul-profundo);
+  border: 1px solid var(--linea-fuerte);
+  box-shadow: none;
+  font-size: 12px;
+  padding: 4px 10px 4px 8px;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+}
+
+.placa.clara::before {
+  width: 9px;
+  height: 9px;
+}
+
+.placa.clara:hover {
+  border-color: var(--azul);
+  color: var(--azul);
+}
+
+.chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--linea-fuerte);
+  background: #fff;
+  color: var(--tinta-media);
+}
+
+.chip-alta {
+  border-color: #e9bdb7;
+  background: #fdf2f0;
+  color: var(--alerta);
+}
+
+.chip-media {
+  border-color: #f0d69a;
+  background: #fdf6e7;
+  color: #8a6110;
+}
+
+.chip-baja {
+  border-color: #b7e2c4;
+  background: var(--verde-suave);
+  color: var(--verde-oscuro);
+}
+
+.paginacion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding: 14px;
+  border-top: 1px solid var(--linea);
+}

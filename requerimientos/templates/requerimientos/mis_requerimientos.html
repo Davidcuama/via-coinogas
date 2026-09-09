@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block titulo %}Mis requerimientos · VIA Compras{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 1140px;">
+
+  <div class="banda mb-4">
+    <div class="banda-fila">
+      <div class="banda-texto">
+        <div class="eyebrow">Mis requerimientos</div>
+        <h1>Hola, {{ user.get_full_name|default:user.get_username }}</h1>
+        <p class="sub">Aquí está todo lo que has radicado ante el área de compras.</p>
+      </div>
+      <a href="{% url 'requerimientos:crear' %}" class="btn btn-primary">+ Nuevo requerimiento</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Radicados por ti</h2>
+      <span class="mini">{{ page_obj.paginator.count }} en total</span>
+    </div>
+    <div class="card-body p-0">
+      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Todavía no has radicado ningún requerimiento." %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

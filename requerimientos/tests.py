@@ -5,6 +5,8 @@ from decimal import Decimal
 from unittest import mock, skipUnless
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser, Group
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
@@ -13,7 +15,7 @@ from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from . import notificaciones
+from . import notificaciones, perfiles
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import CAMPOS_OBLIGATORIOS, ItemForm, RequerimientoForm
 from .models import (
@@ -25,6 +27,37 @@ from .models import (
     SecuenciaRadicacion,
     UnidadMedida,
 )
+
+
+def crear_usuario(usuario="ana.gomez", nombre="Ana", apellido="Gómez", perfil=None, clave=None):
+    """Cuenta de prueba, opcionalmente con un perfil asignado.
+
+    Sin `clave` la cuenta queda sin contraseña utilizable: basta para
+    `force_login` y evita el costo de cifrarla, que multiplicaba por veinte la
+    duración de la suite. Solo las pruebas del ingreso piden una de verdad.
+    """
+    cuenta = get_user_model().objects.create_user(
+        username=usuario, password=clave, first_name=nombre, last_name=apellido
+    )
+    if perfil:
+        grupos = {g.name: g for g in perfiles.asegurar_grupos()}
+        cuenta.groups.add(grupos[perfil])
+    return cuenta
+
+
+class VistaTestCase(TestCase):
+    """Base de las pruebas que golpean vistas.
+
+    Desde que el sistema exige cuenta, ninguna pantalla responde a un anónimo,
+    así que estas pruebas entran con una sesión antes de cada caso.
+    """
+
+    perfil_de_prueba = perfiles.SOLICITANTE
+
+    def setUp(self):
+        super().setUp()
+        self.usuario = crear_usuario(perfil=self.perfil_de_prueba)
+        self.client.force_login(self.usuario)
 
 
 def datos_items(*descripciones):
@@ -275,10 +308,11 @@ class ConsecutivoConcurrenciaTests(TransactionTestCase):
         self.assertEqual(SecuenciaRadicacion.objects.get().ultimo_numero, self.HILOS)
 
 
-class ValidacionCamposObligatoriosTests(TestCase):
+class ValidacionCamposObligatoriosTests(VistaTestCase):
     """HU-15: el sistema impide radicar un requerimiento incompleto y señala qué falta."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Mantenimiento")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
@@ -357,10 +391,11 @@ class ValidacionCamposObligatoriosTests(TestCase):
         self.assertEqual(Requerimiento.objects.count(), 1)
 
 
-class ConfirmacionRadicacionTests(TestCase):
+class ConfirmacionRadicacionTests(VistaTestCase):
     """HU-17: confirmación de radicación en pantalla."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Mantenimiento")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
@@ -444,10 +479,11 @@ class ConfirmacionRadicacionTests(TestCase):
         self.assertNotContains(respuesta, 'id="aviso-total-parcial"')
 
 
-class BorradorRequerimientoTests(TestCase):
+class BorradorRequerimientoTests(VistaTestCase):
     """HU-18: el solicitante guarda un borrador y lo retoma después."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Mantenimiento")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
@@ -514,7 +550,10 @@ class BorradorRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url_crear)
         self.assertIsNone(respuesta.context["borrador"])
         self.assertNotContains(respuesta, 'id="aviso-borrador"')
-        self.assertNotIn("solicitante", respuesta.context["form"].initial)
+        # El unico valor precargado es el nombre de quien esta en sesion; no
+        # arrastra nada de un requerimiento anterior (HU-01).
+        self.assertEqual(respuesta.context["form"].initial["solicitante"], "Ana Gómez")
+        self.assertNotIn("justificacion", respuesta.context["form"].initial)
 
     def test_formulario_en_blanco_no_guarda_borrador(self):
         vacios = dict.fromkeys(self._datos_parciales(), "")
@@ -554,10 +593,15 @@ class BorradorRequerimientoTests(TestCase):
 
     def test_el_borrador_es_privado_de_cada_solicitante(self):
         self.client.post(self.url_guardar, self._datos_parciales())
+
+        otra_cuenta = crear_usuario("luis.mesa", "Luis", "Mesa")
         otro = Client()
+        otro.force_login(otra_cuenta)
         respuesta = otro.get(self.url_crear)
+
         self.assertIsNone(respuesta.context["borrador"])
-        self.assertNotIn("solicitante", respuesta.context["form"].initial)
+        # Ve su propio nombre, nunca lo que escribio el otro solicitante.
+        self.assertEqual(respuesta.context["form"].initial["solicitante"], "Luis Mesa")
 
     def test_el_boton_de_borrador_no_dispara_la_validacion_del_navegador(self):
         respuesta = self.client.get(self.url_crear)
@@ -642,10 +686,11 @@ class BorradorRequerimientoTests(TestCase):
 
 
 @override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "analista@coinogas.com"])
-class NotificacionAreaComprasTests(TestCase):
+class NotificacionAreaComprasTests(VistaTestCase):
     """HU-19: el área de compras recibe un correo cuando se radica un requerimiento."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Mantenimiento")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
@@ -843,10 +888,11 @@ class ItemTests(TestCase):
         self.assertEqual(Item.objects.count(), 0)
 
 
-class RequerimientoVistaTests(TestCase):
+class RequerimientoVistaTests(VistaTestCase):
     """Cubre el envío completo del formulario: encabezado + ítems (HU-06)."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Producción")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-400", nombre="Sede Cali")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
@@ -1000,10 +1046,11 @@ class ItemDatosBasicosTests(TestCase):
             self.assertIn(campo, form.errors)
 
 
-class ItemMarcasTests(TestCase):
+class ItemMarcasTests(VistaTestCase):
     """Cubre HU-08 (marcas de calibración y de reembolsable)."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Instrumentación")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-600", nombre="Sede Envigado")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
@@ -1081,7 +1128,7 @@ class ItemMarcasTests(TestCase):
         self.assertTrue(segundo.es_reembolsable)
 
 
-class ItemEspecificacionesTests(TestCase):
+class ItemEspecificacionesTests(VistaTestCase):
     """Cubre HU-09 (especificaciones técnicas del ítem)."""
 
     FICHA = (
@@ -1092,6 +1139,7 @@ class ItemEspecificacionesTests(TestCase):
     )
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Mantenimiento eléctrico")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-700", nombre="Sede Bello")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
@@ -1179,10 +1227,11 @@ class ItemEspecificacionesTests(TestCase):
         self.assertIn("descripcion", respuesta.context["items"].forms[0].errors)
 
 
-class TotalesTests(TestCase):
+class TotalesTests(VistaTestCase):
     """Cubre HU-10 (cálculo automático de totales)."""
 
     def setUp(self):
+        super().setUp()
         self.area = Area.objects.create(nombre="Compras técnicas")
         self.centro_costo = CentroCosto.objects.create(codigo="CC-800", nombre="Sede Sabaneta")
         self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
@@ -1293,7 +1342,7 @@ class TotalesTests(TestCase):
         self.assertEqual(nuevo.total_estimado, Decimal("87501.50"))
 
 
-class RutaRaizTests(TestCase):
+class RutaRaizTests(VistaTestCase):
     """La raíz del sitio lleva al formulario, no a un 404."""
 
     def test_la_raiz_redirige_al_formulario(self):
@@ -1307,10 +1356,11 @@ class RutaRaizTests(TestCase):
         self.assertEqual(respuesta.status_code, 302)
 
 
-class IdentidadVisualTests(TestCase):
+class IdentidadVisualTests(VistaTestCase):
     """La plantilla base carga la identidad de Coinogas en todas las pantallas."""
 
     def setUp(self):
+        super().setUp()
         self.url = reverse("requerimientos:crear")
 
     def test_declara_el_viewport(self):
@@ -1327,3 +1377,262 @@ class IdentidadVisualTests(TestCase):
         contenido = self.client.get(self.url).content.decode()
         self.assertIn("via-compras.css", contenido)
         self.assertLess(contenido.index("bootstrap"), contenido.index("via-compras.css"))
+
+
+class PortadaTests(TestCase):
+    """La raíz es pública y presenta el sistema (HU-01)."""
+
+    def test_la_portada_responde_sin_sesion(self):
+        respuesta = self.client.get(reverse("portada"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "requerimientos/portada.html")
+
+    def test_presenta_los_tres_perfiles(self):
+        respuesta = self.client.get(reverse("portada"))
+        for nombre in perfiles.PERFILES:
+            self.assertContains(respuesta, nombre)
+
+    def test_ofrece_entrar_al_sistema(self):
+        respuesta = self.client.get(reverse("portada"))
+        self.assertContains(respuesta, reverse("ingresar"))
+
+    def test_a_quien_ya_entro_no_le_muestra_la_portada(self):
+        # Volver a la presentación comercial cuando ya tienes sesión es un paso
+        # de más: se va derecho a la pantalla del perfil.
+        self.client.force_login(crear_usuario(perfil=perfiles.SOLICITANTE))
+        respuesta = self.client.get(reverse("portada"))
+        self.assertRedirects(respuesta, reverse("requerimientos:crear"))
+
+
+class IngresoTests(TestCase):
+    """Ingreso con cuenta y enrutamiento según el perfil."""
+
+    CLAVE = "clave-de-prueba-123"
+
+    def setUp(self):
+        self.url = reverse("ingresar")
+
+    def _entrar(self, usuario):
+        return self.client.post(
+            self.url, {"username": usuario, "password": self.CLAVE}, follow=False
+        )
+
+    def test_la_pantalla_de_ingreso_es_publica(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "registration/login.html")
+
+    def test_credenciales_incorrectas_no_abren_sesion(self):
+        crear_usuario("ana.gomez", perfil=perfiles.SOLICITANTE, clave=self.CLAVE)
+        respuesta = self.client.post(
+            self.url, {"username": "ana.gomez", "password": "no-es"}, follow=False
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'id="error-ingreso"')
+        self.assertFalse(respuesta.wsgi_request.user.is_authenticated)
+
+    def test_el_solicitante_cae_en_el_formulario(self):
+        crear_usuario("ana.gomez", perfil=perfiles.SOLICITANTE, clave=self.CLAVE)
+        respuesta = self._entrar("ana.gomez")
+        self.assertRedirects(respuesta, reverse("requerimientos:crear"))
+
+    def test_el_analista_cae_en_la_bandeja(self):
+        crear_usuario("daryi.silva", perfil=perfiles.ANALISTA, clave=self.CLAVE)
+        respuesta = self._entrar("daryi.silva")
+        self.assertRedirects(respuesta, reverse("requerimientos:bandeja"))
+
+    def test_el_administrador_cae_en_el_panel(self):
+        cuenta = crear_usuario("admin.compras", perfil=perfiles.ADMINISTRADOR, clave=self.CLAVE)
+        cuenta.is_staff = True
+        cuenta.save()
+        respuesta = self._entrar("admin.compras")
+        self.assertRedirects(respuesta, reverse("admin:index"), fetch_redirect_response=False)
+
+    def test_un_usuario_sin_perfil_asignado_puede_radicar(self):
+        # Sin grupo, el sistema lo trata como solicitante: es lo mínimo que
+        # cualquier empleado necesita hacer.
+        crear_usuario("nuevo.empleado", clave=self.CLAVE)
+        respuesta = self._entrar("nuevo.empleado")
+        self.assertRedirects(respuesta, reverse("requerimientos:crear"))
+
+    def test_respeta_la_pantalla_que_se_intentaba_abrir(self):
+        crear_usuario("ana.gomez", perfil=perfiles.SOLICITANTE, clave=self.CLAVE)
+        destino = reverse("requerimientos:mios")
+        respuesta = self.client.post(
+            self.url, {"username": "ana.gomez", "password": self.CLAVE, "next": destino}
+        )
+        self.assertRedirects(respuesta, destino)
+
+    def test_salir_cierra_la_sesion_y_vuelve_a_la_portada(self):
+        self.client.force_login(crear_usuario(perfil=perfiles.SOLICITANTE))
+        respuesta = self.client.post(reverse("salir"))
+        self.assertRedirects(respuesta, reverse("portada"))
+        self.assertFalse(respuesta.wsgi_request.user.is_authenticated)
+
+
+class AccesoSinSesionTests(TestCase):
+    """Ninguna pantalla de trabajo responde a quien no ha entrado."""
+
+    def setUp(self):
+        self.protegidas = [
+            reverse("requerimientos:crear"),
+            reverse("requerimientos:bandeja"),
+            reverse("requerimientos:mios"),
+        ]
+
+    def test_las_pantallas_de_trabajo_mandan_al_ingreso(self):
+        for url in self.protegidas:
+            with self.subTest(url=url):
+                respuesta = self.client.get(url)
+                self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={url}")
+
+    def test_radicar_sin_sesion_no_crea_nada(self):
+        respuesta = self.client.post(reverse("requerimientos:crear"), {})
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+
+
+class AutoriaRequerimientoTests(VistaTestCase):
+    """El requerimiento queda atado a la cuenta que lo radicó."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_el_formulario_propone_el_nombre_de_la_cuenta(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.context["form"].initial["solicitante"], "Ana Gómez")
+
+    def test_al_radicar_queda_registrada_la_cuenta(self):
+        self.client.post(self.url, self._datos())
+        self.assertEqual(Requerimiento.objects.get().creado_por, self.usuario)
+
+    def test_mis_requerimientos_solo_muestra_los_propios(self):
+        self.client.post(self.url, self._datos())
+        mio = Requerimiento.objects.get()
+
+        otra_cuenta = crear_usuario("luis.mesa", "Luis", "Mesa")
+        otro = Client()
+        otro.force_login(otra_cuenta)
+
+        propios = self.client.get(reverse("requerimientos:mios")).context["requerimientos"]
+        ajenos = otro.get(reverse("requerimientos:mios")).context["requerimientos"]
+
+        self.assertEqual(list(propios), [mio])
+        self.assertEqual(list(ajenos), [])
+
+    def test_la_confirmacion_ajena_no_se_puede_espiar(self):
+        # El consecutivo es adivinable, así que la pantalla no puede quedar
+        # abierta a cualquiera que esté en sesión.
+        self.client.post(self.url, self._datos())
+        consecutivo = Requerimiento.objects.get().consecutivo
+
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa"))
+        respuesta = otro.get(reverse("requerimientos:confirmacion", args=[consecutivo]))
+
+        self.assertEqual(respuesta.status_code, 404)
+
+
+class BandejaTests(VistaTestCase):
+    """Bandeja del área de compras: quién entra y qué ve."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.url = reverse("requerimientos:bandeja")
+
+    def _radicar(self, solicitante, creado_por=None):
+        requerimiento = Requerimiento.objects.create(
+            solicitante=solicitante,
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Compra de repuestos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+            creado_por=creado_por,
+        )
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=1,
+            cantidad=2,
+            unidad_medida=self.unidad,
+            descripcion="Empaque",
+            precio_referencia=Decimal("1500.00"),
+        )
+        return requerimiento
+
+    def test_el_analista_ve_todo_lo_radicado(self):
+        self._radicar("Ana Gómez")
+        self._radicar("Luis Mesa")
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(respuesta.context["requerimientos"]), 2)
+
+    def test_muestra_el_consecutivo_y_el_total(self):
+        requerimiento = self._radicar("Ana Gómez")
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, requerimiento.consecutivo)
+        self.assertContains(respuesta, "3.000")
+
+    def test_el_solicitante_no_entra_a_la_bandeja(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(otro.get(self.url).status_code, 403)
+
+    def test_el_administrador_si_entra(self):
+        otro = Client()
+        otro.force_login(crear_usuario("dc", "David", "Cuadros", perfiles.ADMINISTRADOR))
+        self.assertEqual(otro.get(self.url).status_code, 200)
+
+    def test_la_barra_ofrece_la_bandeja_solo_a_quien_puede_entrar(self):
+        self.assertContains(self.client.get(self.url), reverse("requerimientos:bandeja"))
+
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        respuesta = otro.get(reverse("requerimientos:crear"))
+        self.assertNotContains(respuesta, reverse("requerimientos:bandeja"))
+
+
+class PerfilesTests(TestCase):
+    """Reglas de los perfiles, sin pasar por las vistas."""
+
+    def test_los_grupos_se_crean_una_sola_vez(self):
+        perfiles.asegurar_grupos()
+        perfiles.asegurar_grupos()
+        self.assertEqual(Group.objects.filter(name__in=perfiles.PERFILES).count(), 3)
+
+    def test_un_superusuario_administra_aunque_no_tenga_grupo(self):
+        # Si no fuera así, quien instala el proyecto quedaría fuera del sistema.
+        raiz = get_user_model().objects.create_superuser(username="raiz", password=None)
+        self.assertIn(perfiles.ADMINISTRADOR, perfiles.perfiles_de(raiz))
+
+    def test_quien_es_analista_y_solicitante_entra_por_la_bandeja(self):
+        cuenta = crear_usuario("mixta", perfil=perfiles.ANALISTA)
+        grupos = {g.name: g for g in perfiles.asegurar_grupos()}
+        cuenta.groups.add(grupos[perfiles.SOLICITANTE])
+        self.assertEqual(perfiles.destino_tras_ingresar(cuenta), "requerimientos:bandeja")
+
+    def test_un_anonimo_no_tiene_perfiles(self):
+        self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())

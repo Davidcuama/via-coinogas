@@ -1,0 +1,54 @@
+{% comment %}
+  Tabla compartida por la bandeja de compras y la consulta del solicitante.
+  `mostrar_solicitante` la enciende solo la bandeja: en "mis requerimientos"
+  esa columna diría siempre lo mismo.
+{% endcomment %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead>
+      <tr>
+        <th style="width: 10rem;">Consecutivo</th>
+        <th style="width: 7rem;">Radicado</th>
+        {% if mostrar_solicitante %}<th>Solicitante</th>{% endif %}
+        <th>Área o proyecto</th>
+        <th style="width: 6rem;">Prioridad</th>
+        <th style="width: 5rem;" class="text-end">Ítems</th>
+        <th style="width: 9rem;" class="text-end">Total estimado</th>
+        <th style="width: 7rem;">Requerida</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for requerimiento in requerimientos %}
+        <tr>
+          <td>
+            <a href="{% url 'requerimientos:confirmacion' requerimiento.consecutivo %}"
+               class="placa clara">{{ requerimiento.consecutivo }}</a>
+          </td>
+          <td class="dato">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</td>
+          {% if mostrar_solicitante %}<td>{{ requerimiento.solicitante }}</td>{% endif %}
+          <td>{{ requerimiento.area }}</td>
+          <td><span class="chip chip-{{ requerimiento.prioridad.nombre|lower }}">{{ requerimiento.prioridad }}</span></td>
+          <td class="text-end dato">{{ requerimiento.items.count }}</td>
+          <td class="text-end dato">$ {{ requerimiento.total_estimado|floatformat:"0g" }}</td>
+          <td class="dato">{{ requerimiento.fecha_requerida|date:"d/m/Y" }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="8" class="text-center text-muted py-4">{{ vacio }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+  <nav class="paginacion" aria-label="Páginas de resultados">
+    {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-outline-secondary btn-sm">← Anteriores</a>
+    {% endif %}
+    <span class="mini">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}" class="btn btn-outline-secondary btn-sm">Siguientes →</a>
+    {% endif %}
+  </nav>
+{% endif %}

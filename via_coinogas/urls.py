@@ -16,18 +16,17 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from django.contrib.auth.views import LogoutView
 from django.urls import include, path
-from django.views.generic import RedirectView
+
+from requerimientos.views import IngresoView, PortadaView
 
 urlpatterns = [
-    # La raíz lleva al formulario: hoy es la única pantalla de entrada del
-    # sistema. Redirección temporal a propósito, porque cuando exista la
-    # bandeja (HU-20) el destino cambia según el rol.
-    path(
-        "",
-        RedirectView.as_view(pattern_name="requerimientos:crear", permanent=False),
-        name="inicio",
-    ),
+    # La raíz es pública: presenta el sistema a quien no ha entrado y manda a
+    # su pantalla a quien ya tiene sesión.
+    path("", PortadaView.as_view(), name="portada"),
+    path("ingresar/", IngresoView.as_view(), name="ingresar"),
+    path("salir/", LogoutView.as_view(), name="salir"),
     path("admin/", admin.site.urls),
     path("requerimientos/", include("requerimientos.urls")),
 ]
