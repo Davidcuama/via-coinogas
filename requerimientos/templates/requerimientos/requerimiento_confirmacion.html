@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 720px;">
+
+  {# HU-17: confirmación de radicación con el consecutivo (HU-16) destacado. #}
+  <div class="card border-success mb-4">
+    <div class="card-body text-center py-4">
+      <p class="text-success fw-semibold mb-1">Requerimiento radicado correctamente</p>
+      <h1 class="display-5 fw-bold mb-2" id="consecutivo">{{ requerimiento.consecutivo }}</h1>
+      <p class="text-muted mb-0">
+        Guarda este número: es la referencia de tu solicitud ante el área de compras.
+      </p>
+    </div>
+  </div>
+
+  <h2 class="h5 mb-3">Resumen del requerimiento</h2>
+  <dl class="row mb-4">
+    <dt class="col-sm-4">Solicitante</dt>
+    <dd class="col-sm-8">{{ requerimiento.solicitante }}</dd>
+
+    <dt class="col-sm-4">Área o proyecto</dt>
+    <dd class="col-sm-8">{{ requerimiento.area }}</dd>
+
+    <dt class="col-sm-4">Centro de costo</dt>
+    <dd class="col-sm-8">{{ requerimiento.centro_costo }}</dd>
+
+    <dt class="col-sm-4">Prioridad</dt>
+    <dd class="col-sm-8">{{ requerimiento.prioridad }}</dd>
+
+    <dt class="col-sm-4">Fecha de solicitud</dt>
+    <dd class="col-sm-8">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</dd>
+
+    <dt class="col-sm-4">Fecha requerida de recepción</dt>
+    <dd class="col-sm-8">{{ requerimiento.fecha_requerida|date:"d/m/Y" }}</dd>
+
+    {# HU-17: el conteo de ítems, que era el criterio pendiente hasta que HU-06/HU-07 existieron. #}
+    <dt class="col-sm-4">Ítems radicados</dt>
+    <dd class="col-sm-8" id="numero-items">{{ requerimiento.items.count }}</dd>
+  </dl>
+
+  {# HU-17: detalle de lo radicado, para que el solicitante verifique lo que envió. #}
+  <h2 class="h5 mb-3">Ítems</h2>
+  <div class="table-responsive mb-4">
+    <table class="table table-sm align-middle" id="tabla-items">
+      <thead>
+        <tr>
+          <th style="width: 3rem;" class="text-center">N.º</th>
+          <th style="width: 6rem;" class="text-end">Cantidad</th>
+          <th style="width: 9rem;">Unidad</th>
+          <th>Descripción</th>
+          <th style="width: 9rem;" class="text-end">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in requerimiento.items.all %}
+          <tr>
+            <td class="text-center">{{ item.numero }}</td>
+            <td class="text-end">{{ item.cantidad }}</td>
+            <td>{{ item.unidad_medida }}</td>
+            <td>
+              {{ item.descripcion|linebreaksbr }}
+              {% if item.especificaciones_tecnicas %}
+                <div class="small text-muted mt-1">{{ item.especificaciones_tecnicas|linebreaksbr }}</div>
+              {% endif %}
+              {% if item.requiere_calibracion %}
+                <span class="badge text-bg-light border">Requiere calibración</span>
+              {% endif %}
+              {% if item.es_reembolsable %}
+                <span class="badge text-bg-light border">Reembolsable</span>
+              {% endif %}
+            </td>
+            <td class="text-end text-nowrap">{{ item.total|floatformat:2 }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="4" class="text-end">Total estimado</th>
+          {# floatformat:2 en ambos totales: el del item y el agregado deben verse igual. #}
+          <th class="text-end text-nowrap" id="total-estimado">{{ requerimiento.total_estimado|floatformat:2 }}</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {% if requerimiento.tiene_items_sin_precio %}
+    {# HU-10: el total sigue siendo valido, pero conviene decir que es parcial. #}
+    <p class="text-muted small" id="aviso-total-parcial">
+      Hay ítems sin precio de referencia: el total estimado es parcial.
+    </p>
+  {% endif %}
+
+  <a href="{% url 'requerimientos:crear' %}" class="btn btn-primary">Radicar otro requerimiento</a>
+</div>
+{% endblock %}
