@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIA Compras · Prototipo interactivo · Coinogas S.A. E.S.P.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   VIA COMPRAS — Sistema de diseño
+   Paleta extraída directamente del logotipo de Coinogas:
+   el azul del wordmark, el cian del degradado superior,
+   el verde de la hoja y el teal de las burbujas de gas.
+   ============================================================ */
+:root{
+  --azul-profundo:#0B3A5D;   /* navegación, placas, encabezados */
+  --azul:#0078BE;            /* azul corporativo del wordmark */
+  --azul-oscuro:#005A90;
+  --cian:#29B0E8;            /* degradado alto del logo, realces */
+  --teal:#3E88A0;            /* burbujas superiores del logo */
+  --verde:#009838;           /* hoja: acento y acción principal */
+  --verde-oscuro:#007A2C;
+  --verde-suave:#E8F6EC;
+  --azul-suave:#EAF5FC;
+  --ambar:#E8A317;           /* prioridad media, advertencias */
+  --alerta:#C43D2E;          /* prioridad alta, errores */
+  --niebla:#EDF3F7;          /* fondo de página */
+  --papel:#FFFFFF;           /* superficie de tarjeta */
+  --linea:#D5E2EC;           /* hairline */
+  --linea-fuerte:#B4C9D8;
+  --tinta:#0F2230;           /* texto principal */
+  --tinta-media:#4A6577;     /* texto secundario */
+  --tinta-suave:#7891A3;     /* texto terciario, placeholders */
+
+  --display:"Barlow Semi Condensed",'Arial Narrow',sans-serif;
+  --texto:"Public Sans",-apple-system,'Segoe UI',sans-serif;
+  --dato:"IBM Plex Mono",'SF Mono',Consolas,monospace;
+
+  --r:5px; --r-g:10px;
+  --sombra:0 1px 2px rgba(11,58,93,.05),0 6px 18px rgba(11,58,93,.07);
+  --sombra-alta:0 18px 50px rgba(11,58,93,.28);
+  --burbujas:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='110'><g fill='none' stroke='%23ffffff' stroke-width='1.1' opacity='.5'><ellipse cx='26' cy='20' rx='17' ry='7.5' transform='rotate(-18 26 20)'/><ellipse cx='78' cy='40' rx='12' ry='5.5' transform='rotate(-24 78 40)'/><ellipse cx='122' cy='16' rx='15' ry='6.5' transform='rotate(-12 122 16)'/><ellipse cx='44' cy='72' rx='13' ry='6' transform='rotate(-28 44 72)'/><ellipse cx='104' cy='88' rx='18' ry='7.5' transform='rotate(-15 104 88)'/><ellipse cx='8' cy='96' rx='10' ry='4.5' transform='rotate(-22 8 96)'/></g></svg>");
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--texto);
+  background:var(--niebla);
+  color:var(--tinta);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--verde);outline-offset:2px;border-radius:2px}
+::placeholder{color:var(--tinta-suave)}
+
+/* ---------- Logotipo institucional ---------- */
+.logo-coinogas{background-image:url(data:image/png;base64,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)}
+.logo-coinogas-blanco{background-image:url(data:image/png;base64,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)}
+.logo{background-repeat:no-repeat;background-position:center;background-size:contain;display:block;flex:none}
+.logo-plato{
+  background:#fff;border-radius:8px;padding:9px 12px;display:inline-flex;
+  box-shadow:0 2px 10px rgba(0,0,0,.16)
+}
+.tagline{
+  font-family:var(--display);font-size:13px;letter-spacing:.03em;color:var(--teal);
+  font-weight:500
+}
+
+/* ---------- Tipografía ---------- */
+h1,h2,h3,h4{font-family:var(--display);margin:0;font-weight:600;letter-spacing:.01em}
+h1{font-size:30px;line-height:1.15}
+h2{font-size:22px}
+h3{font-size:17px}
+.eyebrow{
+  font-family:var(--dato);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tinta-suave);font-weight:500;
+}
+.mono{font-family:var(--dato)}
+.sub{color:var(--tinta-media);font-size:13px}
+.mini{font-size:12px;color:var(--tinta-media)}
+
+/* ============================================================
+   Placa de instrumento — elemento de firma.
+   Cada requerimiento se identifica con una placa troquelada,
+   como las que Coinogas instala en válvulas e instrumentos.
+   ============================================================ */
+.placa{
+  display:inline-flex;align-items:center;gap:8px;
+  background:linear-gradient(145deg,#12507E,#0B3A5D 60%,#082C47);
+  color:#fff;border-radius:4px;padding:5px 11px 5px 9px;
+  font-family:var(--dato);font-size:12px;font-weight:500;letter-spacing:.06em;
+  border:1px solid rgba(41,176,232,.35);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 6px rgba(11,58,93,.18);
+}
+.placa::before{
+  content:"";width:9px;height:9px;background:var(--verde);flex:none;
+  clip-path:polygon(0 0,50% 50%,0 100%,100% 100%,50% 50%,100% 0); /* símbolo de válvula */
+}
+.placa.grande{font-size:19px;padding:9px 16px 9px 13px;letter-spacing:.09em}
+.placa.grande::before{width:14px;height:14px}
+.placa.clara{background:#fff;color:var(--azul-profundo);border:1px solid var(--linea-fuerte);box-shadow:none}
+
+/* ---------- Estructura de la aplicación ---------- */
+.app{display:grid;grid-template-columns:224px 1fr;min-height:100vh}
+.app.vista-movil{
+  grid-template-columns:1fr;max-width:400px;margin:18px auto 40px;min-height:0;height:780px;
+  border:10px solid #0B1D2E;border-radius:26px;overflow:hidden;position:relative;
+  box-shadow:var(--sombra-alta)
+}
+
+/* ---------- Barra lateral ---------- */
+.rail{
+  background:linear-gradient(200deg,#0E4C77 0%,#0B3A5D 48%,#07293F 100%);
+  color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;position:relative;
+  box-shadow:2px 0 14px rgba(11,58,93,.14)
+}
+.rail::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:210px;
+  background-image:var(--burbujas);background-size:150px 110px;opacity:.16;pointer-events:none
+}
+.marca{padding:16px 14px;border-bottom:1px solid rgba(41,176,232,.22);position:relative;z-index:1}
+.marca .logo-plato{width:100%;justify-content:center;padding:10px 12px}
+.marca .logo{width:150px;height:61px}
+.marca .app-nombre{
+  display:flex;align-items:center;gap:8px;margin-top:12px;
+  font-family:var(--display);font-size:15px;letter-spacing:.14em;color:#BEE4F8;text-transform:uppercase
+}
+.marca .app-nombre::before{
+  content:"";width:11px;height:11px;background:var(--verde);flex:none;
+  clip-path:polygon(0 0,50% 50%,0 100%,100% 100%,50% 50%,100% 0)
+}
+.nav{padding:12px 10px;display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto;position:relative;z-index:1}
+.nav .grupo{padding:14px 8px 6px;font-family:var(--dato);font-size:9.5px;letter-spacing:.14em;color:#6FA6C6;text-transform:uppercase}
+.nav button{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:none;border:0;color:#C6E3F4;padding:10px;border-radius:var(--r);cursor:pointer;
+  font-size:13.5px;font-weight:500;transition:background .15s,color .15s
+}
+.nav button:hover{background:rgba(41,176,232,.14);color:#fff}
+.nav button.on{
+  background:linear-gradient(90deg,rgba(41,176,232,.26),rgba(41,176,232,.06));
+  color:#fff;box-shadow:inset 3px 0 0 var(--verde)
+}
+.nav .ico{width:16px;text-align:center;opacity:.9;font-size:13px}
+.rail-pie{
+  padding:12px 14px;border-top:1px solid rgba(41,176,232,.22);position:relative;z-index:1
+}
+.rail-pie .lema{font-family:var(--display);font-size:13px;color:#8CC9E8;letter-spacing:.02em}
+.rail-pie .ver{font-family:var(--dato);font-size:10px;color:#5E93B4;margin-top:2px}
+
+/* ---------- Barra superior ---------- */
+.tope{
+  background:linear-gradient(180deg,#fff,#FAFDFF);border-bottom:1px solid var(--linea);
+  padding:0 24px;height:60px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:30;
+  box-shadow:0 1px 0 rgba(41,176,232,.10)
+}
+.tope .logo-movil{display:none;width:104px;height:42px}
+.sello{
+  font-family:var(--dato);font-size:10.5px;color:var(--azul-oscuro);
+  border:1px dashed var(--linea-fuerte);border-radius:4px;padding:4px 9px;letter-spacing:.05em;
+  background:var(--azul-suave)
+}
+.tope .crece{flex:1}
+.perfil{display:flex;align-items:center;gap:9px;border-left:1px solid var(--linea);padding-left:14px}
+.avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(140deg,var(--cian),var(--azul) 70%);color:#fff;
+  display:grid;place-items:center;font-family:var(--display);font-size:14px;font-weight:600;flex:none;
+  box-shadow:0 2px 6px rgba(0,120,190,.30)
+}
+.lienzo{padding:24px;max-width:1180px}
+.vista-movil .lienzo{padding:14px}
+
+/* ---------- Banda de encabezado de pantalla ---------- */
+.banda{
+  position:relative;overflow:hidden;border-radius:var(--r-g);
+  background:linear-gradient(115deg,#0B3A5D 0%,#0E5486 52%,#127AA8 100%);
+  color:#fff;padding:22px 26px;margin-bottom:20px;
+  box-shadow:0 6px 20px rgba(11,58,93,.18)
+}
+.banda::after{
+  content:"";position:absolute;inset:0;background-image:var(--burbujas);
+  background-size:150px 110px;opacity:.20;pointer-events:none
+}
+.banda::before{
+  content:"";position:absolute;right:-40px;top:-60px;width:220px;height:220px;border-radius:50%;
+  background:radial-gradient(circle,rgba(0,152,56,.40),transparent 68%);pointer-events:none
+}
+.banda .contenido{position:relative;z-index:1;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.banda .crece{flex:1;min-width:220px}
+.banda .eyebrow{color:#8ED2F0}
+.banda h1{color:#fff;margin:4px 0 3px}
+.banda .sub{color:#BCDCF0}
+
+/* ---------- Botones ---------- */
+.btn{
+  border:1px solid transparent;border-radius:var(--r);padding:9px 16px;cursor:pointer;
+  font-weight:600;font-size:13.5px;display:inline-flex;align-items:center;gap:7px;
+  transition:background .15s,border-color .15s,transform .06s,box-shadow .15s;white-space:nowrap
+}
+.btn:active{transform:translateY(1px)}
+.btn.primario{
+  background:linear-gradient(180deg,#00A83E,var(--verde) 55%,var(--verde-oscuro));color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 8px rgba(0,152,56,.28)
+}
+.btn.primario:hover{background:linear-gradient(180deg,#00B845,#00A03B 55%,#008430)}
+.btn.secundario{background:#fff;border-color:var(--linea-fuerte);color:var(--tinta)}
+.btn.secundario:hover{border-color:var(--azul);color:var(--azul);background:var(--azul-suave)}
+.btn.oscuro{background:linear-gradient(180deg,#0E5486,var(--azul-profundo));color:#fff}
+.btn.oscuro:hover{background:var(--azul-oscuro)}
+.btn.plano{background:none;color:var(--azul);padding:6px 8px}
+.btn.plano:hover{background:var(--azul-suave)}
+.btn.peligro{background:#fff;border-color:#E9BDB7;color:var(--alerta)}
+.btn.peligro:hover{background:#FCF1EF}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn.chico{padding:6px 12px;font-size:12.5px}
+
+/* ---------- Tarjetas ---------- */
+.tarjeta{background:var(--papel);border:1px solid var(--linea);border-radius:var(--r-g);box-shadow:var(--sombra);overflow:hidden}
+.tarjeta .cab{
+  padding:14px 18px;border-bottom:1px solid var(--linea);display:flex;align-items:center;gap:12px;
+  background:linear-gradient(180deg,#FAFDFF,#F2F8FC)
+}
+.tarjeta .cab h3{flex:1;color:var(--azul-profundo)}
+.tarjeta .cab::before{
+  content:"";width:4px;height:17px;border-radius:2px;flex:none;
+  background:linear-gradient(180deg,var(--cian),var(--azul))
+}
+.tarjeta .cuerpo{padding:18px}
+.rejilla{display:grid;gap:16px}
+.enc-pagina{display:flex;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.enc-pagina .crece{flex:1;min-width:220px}
+
+/* ---------- Formularios ---------- */
+.campo{margin-bottom:16px}
+.campo label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:var(--tinta)}
+.campo label .req{color:var(--verde);margin-left:2px}
+.campo .ayuda{font-size:11.5px;color:var(--tinta-suave);margin-top:4px}
+.control{
+  width:100%;padding:9px 11px;border:1px solid var(--linea-fuerte);border-radius:var(--r);
+  background:#fff;transition:border-color .15s,box-shadow .15s
+}
+.control:focus{outline:none;border-color:var(--azul);box-shadow:0 0 0 3px rgba(46,100,145,.13)}
+.control[readonly]{background:var(--niebla);color:var(--tinta-media)}
+textarea.control{min-height:86px;resize:vertical;line-height:1.55}
+select.control{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%234E6373' stroke-width='1.6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
+.fila{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fila-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.campo.error .control{border-color:var(--alerta);background:#FEF7F6}
+.campo.error .msg{color:var(--alerta);font-size:11.5px;margin-top:4px;display:flex;gap:5px;align-items:center;font-weight:500}
+.msg{display:none}
+.campo.error .msg{display:flex}
+.contador{float:right;font-family:var(--dato);font-size:10.5px;color:var(--tinta-suave);font-weight:400}
+.check{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;user-select:none}
+.check input{width:15px;height:15px;accent-color:var(--verde);cursor:pointer}
+
+/* ---------- Línea de proceso (stepper) ----------
+   Los nodos usan el símbolo de válvula de compuerta de un P&ID.
+   El avance se lee como flujo dentro de una tubería.            */
+.linea-proceso{
+  position:relative;margin:0 0 26px;padding:20px 22px 18px;
+  background:linear-gradient(180deg,#fff,#F5FAFD);border:1px solid var(--linea);
+  border-radius:var(--r-g);box-shadow:var(--sombra)
+}
+.lp-riel{position:absolute;left:12%;right:12%;top:36px;height:7px;background:#CDDCE7;border-radius:4px;overflow:hidden}
+.lp-riel::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 9px,rgba(255,255,255,.55) 9px 11px)}
+.lp-flujo{
+  height:100%;background:linear-gradient(90deg,var(--azul-profundo),var(--azul) 40%,var(--cian) 72%,var(--verde));
+  border-radius:4px;transition:width .45s cubic-bezier(.4,0,.2,1);position:relative;z-index:1
+}
+.lp-pasos{display:flex;position:relative;z-index:2}
+.lp-paso{flex:1;background:none;border:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:9px;padding:0}
+.lp-valvula{
+  width:22px;height:22px;background:#BFD2DF;
+  clip-path:polygon(0 0,50% 50%,0 100%,100% 100%,50% 50%,100% 0);
+  transition:background .3s,transform .3s
+}
+.lp-paso .lp-txt{font-family:var(--dato);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--tinta-suave);text-align:center;transition:color .2s}
+.lp-paso.hecho .lp-valvula{background:var(--azul)}
+.lp-paso.hecho .lp-txt{color:var(--azul)}
+.lp-paso.activo .lp-valvula{background:var(--verde);transform:scale(1.25);filter:drop-shadow(0 2px 5px rgba(0,152,56,.45))}
+.lp-paso.activo .lp-txt{color:var(--verde-oscuro);font-weight:600}
+
+/* ---------- Tablas ---------- */
+table{width:100%;border-collapse:collapse}
+thead th{
+  text-align:left;font-family:var(--dato);font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--azul-oscuro);font-weight:500;padding:11px 12px;border-bottom:1px solid var(--linea);
+  background:linear-gradient(180deg,#F4FAFD,#EAF3F9);white-space:nowrap
+}
+thead th.ord{cursor:pointer;user-select:none}
+thead th.ord:hover{color:var(--verde-oscuro)}
+tbody td{padding:11px 12px;border-bottom:1px solid #EDF3F7;vertical-align:middle}
+tbody tr{transition:background .12s,box-shadow .12s}
+tbody tr.clic{cursor:pointer}
+tbody tr.clic:hover{background:var(--azul-suave);box-shadow:inset 3px 0 0 var(--cian)}
+.num{font-family:var(--dato);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody td .mono{white-space:nowrap}
+
+/* ---------- Insignias ---------- */
+.ins{
+  display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
+  font-size:11.5px;font-weight:600;white-space:nowrap
+}
+.ins::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ins.alta{background:#FBEDEB;color:var(--alerta)}
+.ins.media{background:#FDF4DF;color:#996A05}
+.ins.baja{background:#EDF2F6;color:var(--tinta-media)}
+.ins.radicado{background:#E7F0F8;color:var(--azul-oscuro)}
+.ins.revision{background:#EAE8F7;color:#54479B}
+.ins.devuelto{background:#FBEDEB;color:var(--alerta)}
+.ins.cotizacion{background:var(--verde-suave);color:#B85A18}
+.ins.cerrado{background:#E4F3EF;color:var(--verde)}
+.etiq{
+  display:inline-block;padding:2px 7px;border-radius:3px;font-size:10.5px;font-weight:600;
+  font-family:var(--dato);letter-spacing:.04em;border:1px solid
+}
+.etiq.cal{background:#EAF3FF;color:var(--azul-oscuro);border-color:#C6DDF3}
+.etiq.reem{background:#F1F0FB;color:#54479B;border-color:#D8D4F0}
+
+/* ---------- Ítems del requerimiento ---------- */
+.item{border:1px solid var(--linea);border-radius:var(--r-g);margin-bottom:14px;overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s}
+.item:hover{border-color:#B9DCF0;box-shadow:0 3px 12px rgba(11,58,93,.07)}
+.item-cab{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:linear-gradient(180deg,#F6FBFE,#EDF5FA);border-bottom:1px solid var(--linea)
+}
+.item-n{
+  width:25px;height:25px;background:linear-gradient(150deg,var(--cian),var(--azul));color:#fff;border-radius:4px;
+  display:grid;place-items:center;font-family:var(--dato);font-size:12px;font-weight:600;flex:none;
+  box-shadow:0 2px 5px rgba(0,120,190,.28)
+}
+.item-cab .crece{flex:1;font-weight:600;font-size:13px}
+.item-cuerpo{padding:14px}
+.total-caja{
+  display:flex;justify-content:space-between;align-items:center;padding:16px 20px;
+  background:linear-gradient(115deg,#0B3A5D,#0E5486 62%,#127AA8);color:#fff;border-radius:var(--r-g);
+  margin-top:6px;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(11,58,93,.20)
+}
+.total-caja::after{
+  content:"";position:absolute;inset:0;background-image:var(--burbujas);background-size:150px 110px;opacity:.16
+}
+.total-caja>*{position:relative;z-index:1}
+.total-caja .cifra{font-family:var(--dato);font-size:24px;font-weight:600;letter-spacing:.02em}
+
+/* ---------- Evidencia fotográfica ---------- */
+.zona-foto{
+  border:2px dashed var(--linea-fuerte);border-radius:var(--r-g);padding:26px;text-align:center;
+  background:linear-gradient(180deg,#FBFDFE,#F2F9FD);cursor:pointer;transition:border-color .15s,background .15s
+}
+.zona-foto:hover{border-color:var(--verde);background:var(--verde-suave)}
+.galeria{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.foto{
+  width:112px;border:1px solid var(--linea);border-radius:var(--r);overflow:hidden;background:#fff;position:relative;
+  transition:transform .15s,box-shadow .15s
+}
+.foto:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(11,58,93,.14)}
+.foto .lienzo-foto{height:82px;display:grid;place-items:center;background:linear-gradient(135deg,#E4F1F9,#CCE3F1)}
+.foto .pie{padding:5px 7px;font-family:var(--dato);font-size:9.5px;color:var(--tinta-media);border-top:1px solid var(--linea);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.foto .quitar{
+  position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:3px;border:0;
+  background:rgba(18,32,44,.72);color:#fff;cursor:font-size:12px;line-height:1;display:grid;place-items:center
+}
+
+/* ---------- Avisos ---------- */
+.aviso{display:flex;gap:11px;padding:13px 15px;border-radius:var(--r-g);border:1px solid;font-size:13px;margin-bottom:18px}
+.aviso .ic{font-size:15px;line-height:1.3}
+.aviso.error{background:#FDF3F2;border-color:#EFC9C3;color:#8A2E22}
+.aviso.info{background:#EFF6FC;border-color:#C9DEF0;color:#0B3A5D}
+.aviso.ok{background:#E8F6EC;border-color:#BFE2D8;color:#146B55}
+.aviso.nota{background:#FFFBEE;border-color:#F0DEA8;color:#7A5B08}
+.aviso ul{margin:6px 0 0;padding-left:17px}
+.aviso b{display:block;margin-bottom:2px}
+
+/* ---------- Filtros ---------- */
+.filtros{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:13px 18px;border-bottom:1px solid var(--linea);background:#FBFCFD}
+.chip{
+  border:1px solid var(--linea-fuerte);background:#fff;border-radius:999px;padding:5px 13px;
+  font-size:12.5px;cursor:pointer;font-weight:500;transition:all .14s
+}
+.chip:hover{border-color:var(--azul)}
+.chip.on{background:var(--azul-profundo);border-color:var(--azul-profundo);color:#fff}
+.buscador{position:relative;flex:1;min-width:170px}
+.buscador input{padding-left:31px}
+.buscador .lupa{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--tinta-suave)}
+
+/* ---------- Indicadores ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.kpi{
+  background:var(--papel);border:1px solid var(--linea);border-radius:var(--r-g);padding:16px;
+  position:relative;overflow:hidden;box-shadow:var(--sombra);transition:transform .15s,box-shadow .15s
+}
+.kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--cian),var(--azul))}
+.kpi:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(11,58,93,.11)}
+.kpi.acento::before{background:linear-gradient(90deg,#00B845,var(--verde))}
+.kpi.verde::before{background:linear-gradient(90deg,#5BC98A,var(--verde))}
+.kpi.ambar::before{background:linear-gradient(90deg,#F3C558,var(--ambar))}
+.kpi .valor{font-family:var(--dato);font-size:28px;font-weight:600;line-height:1.15;margin:6px 0 2px;color:var(--azul-profundo)}
+.kpi .delta{font-size:11.5px;font-weight:600}
+.kpi .delta.sube{color:var(--verde)}
+.kpi .delta.baja{color:var(--alerta)}
+.barras{display:flex;align-items:flex-end;gap:12px;height:190px;padding:10px 4px 0}
+.barra{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end}
+.barra .cuerpo-b{
+  width:100%;max-width:44px;background:linear-gradient(180deg,var(--cian),var(--azul) 55%,var(--azul-profundo));
+  border-radius:4px 4px 0 0;position:relative;transition:height .6s cubic-bezier(.4,0,.2,1);
+  box-shadow:0 2px 8px rgba(0,120,190,.22)
+}
+.barra .cuerpo-b span{position:absolute;top:-19px;left:0;right:0;text-align:center;font-family:var(--dato);font-size:11px;font-weight:600;color:var(--tinta)}
+.barra .mes{font-family:var(--dato);font-size:10px;letter-spacing:.06em;color:var(--tinta-suave);text-transform:uppercase}
+.dona{width:150px;height:150px;border-radius:50%;position:relative;flex:none}
+.dona::after{content:"";position:absolute;inset:26px;background:#fff;border-radius:50%}
+.leyenda{display:flex;flex-direction:column;gap:9px;justify-content:center}
+.leyenda div{display:flex;align-items:center;gap:9px;font-size:12.5px}
+.leyenda i{width:11px;height:11px;border-radius:2px;display:block;flex:none}
+.b-horiz{display:flex;flex-direction:column;gap:11px}
+.b-horiz .fila-b{display:grid;grid-template-columns:130px 1fr 42px;gap:11px;align-items:center;font-size:12.5px}
+.b-horiz .pista{height:9px;background:#E7EDF1;border-radius:5px;overflow:hidden}
+.b-horiz .relleno{height:100%;background:var(--azul);border-radius:5px;transition:width .6s}
+
+/* ---------- Modal ---------- */
+.velo{position:fixed;inset:0;background:rgba(14,32,48,.55);display:none;place-items:center;z-index:100;padding:20px;backdrop-filter:blur(2px)}
+.velo.abierto{display:grid}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:520px;box-shadow:var(--sombra-alta);animation:sube .2s ease}
+@keyframes sube{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.modal .cab{padding:17px 20px;border-bottom:1px solid var(--linea);display:flex;align-items:center;gap:10px}
+.modal .cuerpo{padding:20px}
+.modal .pie{padding:14px 20px;border-top:1px solid var(--linea);display:flex;gap:10px;justify-content:flex-end;background:#FBFCFD;border-radius:0 0 12px 12px}
+
+/* ---------- Aviso flotante ---------- */
+.brindis{
+  position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--azul-profundo);color:#fff;padding:12px 20px;border-radius:var(--r-g);
+  box-shadow:var(--sombra-alta);z-index:200;opacity:0;transition:all .3s;font-size:13.5px;
+  display:flex;align-items:center;gap:10px;max-width:90vw
+}
+.brindis.ver{opacity:1;transform:translateX(-50%) translateY(0)}
+.brindis .pt{width:8px;height:8px;border-radius:50%;background:var(--verde);flex:none}
+
+/* ---------- Pantallas ---------- */
+.pantalla{display:none;animation:aparece .25s ease}
+.pantalla.activa{display:block}
+@keyframes aparece{from{opacity:0}to{opacity:1}}
+
+/* ---------- Portada del prototipo ---------- */
+.portada{
+  min-height:100vh;position:relative;overflow:hidden;
+  background:
+    radial-gradient(900px 520px at 78% -10%,rgba(0,152,56,.30),transparent 62%),
+    radial-gradient(700px 480px at 8% 105%,rgba(41,176,232,.26),transparent 60%),
+    linear-gradient(158deg,#08293F 0%,#0B3A5D 42%,#0E5486 100%);
+  color:#fff;display:grid;place-items:center;padding:44px 20px
+}
+.portada .textura{
+  position:absolute;inset:0;background-image:var(--burbujas);background-size:150px 110px;opacity:.13;pointer-events:none
+}
+.burbujas-anim{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.burbujas-anim i{
+  position:absolute;bottom:-70px;display:block;border-radius:50%;
+  border:1px solid rgba(41,176,232,.34);background:rgba(41,176,232,.05);
+  animation:sube-burbuja linear infinite
+}
+@keyframes sube-burbuja{
+  0%{transform:translateY(0) scale(.7);opacity:0}
+  12%{opacity:.85}
+  100%{transform:translateY(-112vh) scale(1.25);opacity:0}
+}
+.portada-caja{max-width:980px;width:100%;position:relative;z-index:2}
+.portada .cabecera-marca{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:30px}
+.portada .logo{width:190px;height:77px}
+.portada .divisor{width:1px;height:46px;background:rgba(255,255,255,.24)}
+.portada .rotulo{font-family:var(--display);letter-spacing:.20em;font-size:15px;color:#8ED2F0;text-transform:uppercase}
+.portada .rotulo b{display:block;color:#fff;font-size:22px;letter-spacing:.13em}
+.portada h1{font-size:clamp(36px,6.2vw,64px);line-height:1;letter-spacing:-.015em;margin:0 0 16px}
+.portada h1 em{
+  font-style:normal;
+  background:linear-gradient(100deg,var(--cian),#5BE08A);
+  -webkit-background-clip:text;background-clip:text;color:transparent
+}
+.portada .lead{max-width:580px;color:#B6D6EA;font-size:15.5px;line-height:1.65;margin:0}
+.perfiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:34px}
+.p-carta{
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:12px;
+  padding:22px;text-align:left;cursor:pointer;color:#fff;transition:all .2s;position:relative;overflow:hidden;
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start
+}
+.p-carta::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--cian),var(--verde));opacity:0;transition:opacity .2s
+}
+.p-carta:hover{background:rgba(41,176,232,.13);border-color:rgba(41,176,232,.55);transform:translateY(-4px);
+  box-shadow:0 14px 34px rgba(0,0,0,.26)}
+.p-carta:hover::before{opacity:1}
+.p-carta h3{font-size:19px;margin-bottom:6px}
+.p-carta p{margin:0;font-size:12.5px;color:#A8C8DC;line-height:1.5}
+.p-carta .glifo{
+  display:inline-grid;place-items:center;width:36px;height:36px;border-radius:9px;margin-bottom:12px;
+  background:linear-gradient(145deg,rgba(41,176,232,.30),rgba(0,152,56,.28));font-size:17px;
+  border:1px solid rgba(255,255,255,.18)
+}
+.portada-pie{
+  margin-top:34px;padding-top:20px;border-top:1px solid rgba(255,255,255,.16);
+  display:flex;gap:26px;flex-wrap:wrap;align-items:center;
+  font-family:var(--dato);font-size:11px;color:#7FB4D2;letter-spacing:.05em
+}
+.portada-pie .lema{font-family:var(--display);font-size:15px;color:#8CC9E8;letter-spacing:.02em}
+
+/* ---------- Ficha ---------- */
+.ficha-tope{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:18px}
+.datos{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px 20px}
+.dato .et{font-family:var(--dato);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--tinta-suave);margin-bottom:3px}
+.dato .vl{font-size:13.5px;font-weight:500}
+.linea-tiempo{border-left:2px solid var(--linea);padding-left:16px;margin-left:6px;display:flex;flex-direction:column;gap:16px}
+.hito{position:relative}
+.hito::before{content:"";position:absolute;left:-22px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--azul);border:2px solid #fff;box-shadow:0 0 0 1px var(--linea)}
+.hito.act::before{background:var(--verde)}
+.hito .cuando{font-family:var(--dato);font-size:10.5px;color:var(--tinta-suave)}
+
+/* ---------- Pie institucional ---------- */
+.pie-marca{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:18px 24px;margin:8px 24px 24px;max-width:1180px;
+  border-top:1px solid var(--linea)
+}
+.vista-movil .pie-marca{display:none}
+.salir-movil{display:none}
+body.modo-movil{background:linear-gradient(160deg,#E7F1F8,#DDEAF3)}
+body.modo-movil .salir-movil{
+  display:inline-flex;position:fixed;top:20px;right:20px;z-index:60;box-shadow:var(--sombra)
+}
+
+/* ---------- Pestañas ---------- */
+.pestanas{display:flex;gap:2px;border-bottom:1px solid var(--linea);margin-bottom:18px;overflow-x:auto}
+.pestanas button{
+  background:none;border:0;padding:10px 15px;cursor:pointer;font-weight:600;font-size:13px;
+  color:var(--tinta-media);border-bottom:2px solid transparent;white-space:nowrap
+}
+.pestanas button.on{color:var(--azul-oscuro);border-bottom-color:var(--verde)}
+
+/* ---------- Barra de acciones fija ---------- */
+.acciones{
+  display:flex;gap:10px;justify-content:space-between;align-items:center;
+  padding:14px 18px;background:#fff;border:1px solid var(--linea);border-radius:var(--r-g);
+  margin-top:18px;box-shadow:var(--sombra);flex-wrap:wrap
+}
+
+/* ---------- Modo móvil / responsive ---------- */
+.vista-movil .rail{display:none}
+.vista-movil .tope{padding:0 12px;height:54px}
+.vista-movil .sello,.vista-movil .oculta-movil{display:none}
+.vista-movil .logo-movil{display:block}
+.vista-movil .banda{padding:16px 18px}
+.vista-movil .banda h1{font-size:24px}
+.vista-movil .fila,.vista-movil .fila-3,.vista-movil .kpis{grid-template-columns:1fr}
+.vista-movil .perfiles{grid-template-columns:1fr}
+.vista-movil .rejilla{grid-template-columns:1fr!important}
+.vista-movil main{overflow-y:auto;height:calc(780px - 54px - 56px)}
+.barra-movil{display:none}
+.vista-movil .barra-movil{
+  display:flex;position:absolute;bottom:0;left:0;right:0;height:56px;
+  background:linear-gradient(180deg,#0B3A5D,#07293F);
+  border-top:1px solid rgba(41,176,232,.24);z-index:40
+}
+.vista-movil .barra-movil button{
+  flex:1;background:none;border:0;color:#9FCBE4;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;font-size:10px;cursor:pointer
+}
+.vista-movil .barra-movil button.on{color:#fff;box-shadow:inset 0 3px 0 var(--verde)}
+.vista-movil .barra-movil button .ico{font-size:16px}
+
+@media(max-width:900px){
+  .app{grid-template-columns:1fr}
+  .rail{display:none}
+  .logo-movil{display:block}
+  .fila,.fila-3{grid-template-columns:1fr}
+  .kpis{grid-template-columns:1fr 1fr}
+  .perfiles{grid-template-columns:1fr}
+  .rejilla{grid-template-columns:1fr!important}
+  .lienzo{padding:14px}
+  .banda{padding:18px}
+  .barra-movil{
+    display:flex;position:fixed;bottom:0;left:0;right:0;height:56px;
+    background:linear-gradient(180deg,#0B3A5D,#07293F);z-index:40
+  }
+  .barra-movil button{flex:1;background:none;border:0;color:#9FCBE4;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:3px;font-size:10px;cursor:pointer}
+  .barra-movil button.on{color:#fff;box-shadow:inset 0 3px 0 var(--verde)}
+  main{padding-bottom:60px}
+  .tope .oculta-movil{display:none}
+  .portada .logo{width:150px;height:61px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- =========================================================
+     PORTADA — selección de perfil para recorrer el prototipo
+     ========================================================= -->
+<div id="portada" class="portada">
+  <div class="textura"></div>
+  <div class="burbujas-anim" id="burbujas" aria-hidden="true"></div>
+  <div class="portada-caja">
+    <div class="cabecera-marca">
+      <div class="logo-plato"><span class="logo logo-coinogas" role="img" aria-label="Coinogas S.A. E.S.P."></span></div>
+      <div class="divisor"></div>
+      <div class="rotulo">Sistema de radicación<b>VIA Compras</b></div>
+    </div>
+
+    <h1>Radicar una compra<br>debe tomar <em>minutos</em>,<br>no correos.</h1>
+    <p class="lead">Prototipo interactivo del sistema que reemplaza el formato ADM-F-22 en Excel.
+    Recórrelo como si estuvieras en la operación: elige un perfil y sigue el flujo completo.</p>
+
+    <div class="perfiles">
+      <button class="p-carta" onclick="entrar('solicitante')">
+        <span class="glifo">✎</span>
+        <h3>Solicitante</h3>
+        <p>Diligencia el requerimiento, adjunta fotos del artículo y consulta el estado de lo que ha radicado.</p>
+      </button>
+      <button class="p-carta" onclick="entrar('analista')">
+        <span class="glifo">▦</span>
+        <h3>Analista de compras</h3>
+        <p>Recibe todo en una bandeja, filtra por prioridad, revisa la ficha y devuelve lo que está incompleto.</p>
+      </button>
+      <button class="p-carta" onclick="entrar('admin')">
+        <span class="glifo">⚙</span>
+        <h3>Administrador</h3>
+        <p>Parametriza áreas, centros de costo y prioridades, y gestiona las cuentas del sistema.</p>
+      </button>
+    </div>
+
+    <div class="portada-pie">
+      <span class="lema">Transportando bienestar</span>
+      <span>ADM-F-22 · REV. 02</span>
+      <span>SPRINT 0 · DISEÑO DE INTERFACES</span>
+      <span>PROTOTIPO NO FUNCIONAL · DATOS DE EJEMPLO</span>
+    </div>
+  </div>
+</div>
+
+<!-- =========================================================
+     APLICACIÓN
+     ========================================================= -->
+<div id="app" class="app" style="display:none">
+
+  <!-- Barra lateral -->
+  <aside class="rail">
+    <div class="marca">
+      <div class="logo-plato"><span class="logo logo-coinogas" role="img" aria-label="Coinogas S.A. E.S.P."></span></div>
+      <div class="app-nombre">VIA Compras</div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-pie">
+      <div class="lema">Transportando bienestar</div>
+      <div class="ver">Prototipo v0.1 · Sprint 0</div>
+    </div>
+  </aside>
+
+  <main>
+    <!-- Barra superior -->
+    <header class="tope">
+      <span class="logo logo-movil logo-coinogas" role="img" aria-label="Coinogas"></span>
+      <button class="btn plano oculta-movil" onclick="volverPortada()">← Cambiar perfil</button>
+      <span class="sello">FORMATO ADM-F-22 · REV. 02 · 18/01/2021</span>
+      <span class="crece"></span>
+      <button class="btn secundario chico oculta-movil" onclick="alternarMovil()" id="btnMovil">Ver en móvil</button>
+      <div class="perfil">
+        <div class="avatar" id="avatarIni">DA</div>
+        <div class="oculta-movil">
+          <div style="font-weight:600;font-size:13px" id="nombreUsuario">Daryi Silva</div>
+          <div class="mini" id="rolUsuario">Analista de compras</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="lienzo">
+
+      <!-- ============ P1 · INICIO DEL SOLICITANTE ============ -->
+      <section class="pantalla" id="p-inicio">
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece">
+              <div class="eyebrow">Mis requerimientos</div>
+              <h1>Hola, David</h1>
+              <p class="sub">Aquí está todo lo que has radicado ante el área de compras.</p>
+            </div>
+            <button class="btn primario" onclick="nuevoRequerimiento()">+ Nuevo requerimiento</button>
+          </div>
+        </div>
+
+        <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+          <div class="kpi"><div class="eyebrow">En trámite</div><div class="valor">3</div><div class="mini">Radicados o en cotización</div></div>
+          <div class="kpi ambar"><div class="eyebrow">Requieren tu atención</div><div class="valor">1</div><div class="mini">Devuelto con observaciones</div></div>
+          <div class="kpi verde"><div class="eyebrow">Cerrados este año</div><div class="valor">7</div><div class="mini">Compra recibida</div></div>
+        </div>
+
+        <div class="aviso nota">
+          <span class="ic">⚑</span>
+          <div>
+            <b>REQ-2026-0143 fue devuelto</b>
+            Alejandra pide el número de parte del transmisor y la fecha de vencimiento del certificado vigente.
+            <div style="margin-top:9px"><button class="btn secundario chico" onclick="irFicha('REQ-2026-0143')">Ver observaciones</button></div>
+          </div>
+        </div>
+
+        <div class="tarjeta">
+          <div class="cab"><h3>Historial</h3><span class="mini">Actualizado hace 4 minutos</span></div>
+          <table>
+            <thead><tr><th>Consecutivo</th><th>Descripción</th><th>Prioridad</th><th>Fecha requerida</th><th>Estado</th></tr></thead>
+            <tbody id="tbodyMios"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ P2 · FORMULARIO ============ -->
+      <section class="pantalla" id="p-formulario">
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece">
+              <div class="eyebrow">Manifestación de requerimiento de compra</div>
+              <h1>Nuevo requerimiento</h1>
+              <p class="sub">El formulario abre siempre en blanco. No se precargan solicitudes anteriores.</p>
+            </div>
+            <span class="placa clara">SIN RADICAR</span>
+          </div>
+        </div>
+
+        <div class="linea-proceso">
+          <div class="lp-riel"><div class="lp-flujo" id="lpFlujo" style="width:0%"></div></div>
+          <div class="lp-pasos" id="lpPasos">
+            <button class="lp-paso activo" onclick="irPaso(1)"><span class="lp-valvula"></span><span class="lp-txt">Encabezado</span></button>
+            <button class="lp-paso" onclick="irPaso(2)"><span class="lp-valvula"></span><span class="lp-txt">Ítems</span></button>
+            <button class="lp-paso" onclick="irPaso(3)"><span class="lp-valvula"></span><span class="lp-txt">Especificaciones</span></button>
+            <button class="lp-paso" onclick="irPaso(4)"><span class="lp-valvula"></span><span class="lp-txt">Evidencias</span></button>
+            <button class="lp-paso" onclick="irPaso(5)"><span class="lp-valvula"></span><span class="lp-txt">Planeación</span></button>
+          </div>
+        </div>
+
+        <div id="avisoValidacion"></div>
+
+        <!-- Paso 1 -->
+        <div class="paso" id="paso1">
+          <div class="tarjeta">
+            <div class="cab"><h3>Encabezado</h3><span class="mini">Datos de quién pide y a qué se imputa el gasto</span></div>
+            <div class="cuerpo">
+              <div class="fila">
+                <div class="campo" id="c-solicitante">
+                  <label>Nombre del solicitante <span class="req">*</span></label>
+                  <input class="control" id="f-solicitante" value="David Cuadros">
+                  <div class="msg">⚠ Escribe el nombre de quien radica el requerimiento.</div>
+                </div>
+                <div class="campo">
+                  <label>Fecha de solicitud</label>
+                  <input class="control" value="05/08/2026" readonly>
+                  <div class="ayuda">La registra el sistema. No es editable.</div>
+                </div>
+              </div>
+              <div class="fila">
+                <div class="campo" id="c-area">
+                  <label>Área o proyecto <span class="req">*</span></label>
+                  <select class="control" id="f-area">
+                    <option value="">Selecciona un área</option>
+                    <option>Operación y mantenimiento</option>
+                    <option selected>Metrología</option>
+                    <option>Ingeniería</option>
+                    <option>HSEQ</option>
+                    <option>Administrativa</option>
+                    <option>Proyecto Cusiana–El Porvenir</option>
+                  </select>
+                  <div class="msg">⚠ Selecciona el área que solicita la compra.</div>
+                </div>
+                <div class="campo" id="c-centro">
+                  <label>Centro de costo <span class="req">*</span></label>
+                  <select class="control" id="f-centro">
+                    <option value="">Selecciona un centro de costo</option>
+                    <option selected>CC-410 · Sistemas metrológicos</option>
+                    <option>CC-120 · Gasoducto Floreña–Yopal</option>
+                    <option>CC-305 · Planta de procesamiento Yopal</option>
+                    <option>CC-900 · Administración</option>
+                  </select>
+                  <div class="msg">⚠ Selecciona el centro de costo al que se imputa el gasto.</div>
+                </div>
+              </div>
+              <div class="campo" id="c-justificacion">
+                <label>Justificación del requerimiento <span class="req">*</span>
+                  <span class="contador"><span id="cont">0</span>/500</span></label>
+                <textarea class="control" id="f-justificacion" maxlength="500"
+                  placeholder="Explica por qué se necesita esta compra."></textarea>
+                <div class="msg">⚠ La justificación no puede quedar vacía.</div>
+                <div class="ayuda">Es lo primero que lee el área de compras para entender la urgencia.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Paso 2 -->
+        <div class="paso" id="paso2" style="display:none">
+          <div class="tarjeta">
+            <div class="cab"><h3>Ítems del requerimiento</h3><span class="mini">Un requerimiento puede tener varios artículos</span></div>
+            <div class="cuerpo">
+              <div id="listaItems"></div>
+              <button class="btn secundario" onclick="agregarItem()">+ Agregar ítem</button>
+              <div class="total-caja">
+                <div>
+                  <div class="eyebrow" style="color:#8ED2F0">Total de referencia</div>
+                  <div class="mini" style="color:#B6D6EA">El precio unitario es opcional; sirve para dimensionar la compra.</div>
+                </div>
+                <div class="cifra" id="totalGeneral">$ 0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Paso 3 -->
+        <div class="paso" id="paso3" style="display:none">
+          <div class="tarjeta">
+            <div class="cab"><h3>Especificaciones técnicas</h3><span class="mini">Entre más preciso el dato, menos preguntas después</span></div>
+            <div class="cuerpo">
+              <div class="aviso info">
+                <span class="ic">◈</span>
+                <div>Escribe <b class="mono" style="display:inline">N/A</b> en lo que no aplique. El formato no admite espacios vacíos.</div>
+              </div>
+              <div id="listaSpecs"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Paso 4 -->
+        <div class="paso" id="paso4" style="display:none">
+          <div class="rejilla" style="grid-template-columns:1fr">
+            <div class="tarjeta">
+              <div class="cab"><h3>Evidencia fotográfica</h3><span class="mini">Una foto evita una cadena de correos</span></div>
+              <div class="cuerpo">
+                <div class="zona-foto" onclick="adjuntar()">
+                  <div style="font-size:26px;color:var(--verde)">⬈</div>
+                  <div style="font-weight:600;margin-top:6px">Arrastra una imagen o toca para buscarla</div>
+                  <div class="mini">JPG o PNG, hasta 5 MB por archivo</div>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+                  <button class="btn secundario chico" onclick="adjuntar('camara')">◉ Tomar foto con la cámara</button>
+                  <span class="mini" style="align-self:center">Disponible cuando entras desde el celular en campo.</span>
+                </div>
+                <div class="galeria" id="galeria"></div>
+              </div>
+            </div>
+
+            <div class="tarjeta">
+              <div class="cab"><h3>Proveedores sugeridos</h3><span class="mini" id="contProv">0 de 3</span></div>
+              <div class="cuerpo">
+                <p class="mini" style="margin-top:0">Si conoces a alguien que venda esto, escríbelo. Compras valida y hace el contacto formal.</p>
+                <div id="listaProv"></div>
+                <button class="btn secundario chico" id="btnProv" onclick="agregarProveedor()">+ Agregar proveedor</button>
+                <hr style="border:0;border-top:1px solid var(--linea);margin:20px 0">
+                <div class="campo" style="margin-bottom:0">
+                  <label class="check"><input type="checkbox" id="chkSust" onchange="toggleSust()"> Existen productos o servicios sustitutos</label>
+                  <textarea class="control" id="f-sustitutos" style="display:none;margin-top:10px"
+                    placeholder="¿Cuáles? Descríbelos brevemente."></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Paso 5 -->
+        <div class="paso" id="paso5" style="display:none">
+          <div class="tarjeta">
+            <div class="cab"><h3>Planeación de la recepción</h3><span class="mini">Cuándo lo necesitas y qué tan urgente es</span></div>
+            <div class="cuerpo">
+              <div class="fila">
+                <div class="campo" id="c-prioridad">
+                  <label>Prioridad de la compra <span class="req">*</span></label>
+                  <select class="control" id="f-prioridad">
+                    <option>Alta</option><option selected>Media</option><option>Baja</option>
+                  </select>
+                  <div class="ayuda">Alta significa que la operación se detiene sin esta compra.</div>
+                </div>
+                <div class="campo" id="c-fecha">
+                  <label>Fecha requerida de recepción <span class="req">*</span></label>
+                  <input type="date" class="control" id="f-fecha" value="2026-09-15">
+                  <div class="msg">⚠ La fecha requerida no puede ser anterior al 05/08/2026.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tarjeta" style="margin-top:16px">
+            <div class="cab"><h3>Revisión antes de radicar</h3></div>
+            <div class="cuerpo">
+              <div class="datos" id="resumen"></div>
+            </div>
+          </div>
+
+          <div class="aviso info" style="margin-top:16px">
+            <span class="ic">◈</span>
+            <div><b>Prueba la validación</b>
+              Vacía la justificación en el paso 1 y radica: el sistema bloquea el envío, señala el campo exacto y conserva todo lo demás.</div>
+          </div>
+        </div>
+
+        <div class="acciones">
+          <button class="btn secundario" id="btnAtras" onclick="pasoAtras()" style="visibility:hidden">← Atrás</button>
+          <div style="display:flex;gap:10px">
+            <button class="btn plano" onclick="brindis('Borrador guardado. Podrás retomarlo desde tu historial.')">Guardar borrador</button>
+            <button class="btn primario" id="btnSiguiente" onclick="pasoAdelante()">Continuar →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ P3 · CONFIRMACIÓN ============ -->
+      <section class="pantalla" id="p-confirmacion">
+        <div class="tarjeta" style="max-width:660px;margin:34px auto;text-align:center">
+          <div style="height:6px;background:linear-gradient(90deg,var(--cian),var(--azul) 45%,var(--verde))"></div>
+          <div class="cuerpo" style="padding:38px 30px">
+            <div style="width:64px;height:64px;border-radius:50%;
+                        background:linear-gradient(145deg,#E8F6EC,#CDEBD8);color:var(--verde-oscuro);
+                        display:grid;place-items:center;font-size:30px;margin:0 auto 18px;
+                        box-shadow:0 6px 18px rgba(0,152,56,.20)">✓</div>
+            <h2 style="color:var(--azul-profundo)">Requerimiento radicado</h2>
+            <p class="sub" style="margin:8px 0 20px">Compras ya lo tiene. Guarda este número para hacer seguimiento.</p>
+            <span class="placa grande" id="placaNueva">REQ-2026-0148</span>
+            <div class="datos" style="margin-top:28px;text-align:left;border-top:1px solid var(--linea);padding-top:20px" id="resumenFinal"></div>
+            <div style="display:flex;gap:10px;justify-content:center;margin-top:26px;flex-wrap:wrap">
+              <button class="btn secundario" onclick="ir('p-inicio')">Ver mis requerimientos</button>
+              <button class="btn primario" onclick="nuevoRequerimiento()">Radicar otro</button>
+            </div>
+            <p class="mini" style="margin-top:18px">Se envió una notificación a compras@coinogas.com</p>
+            <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--linea);display:flex;align-items:center;justify-content:center;gap:12px">
+              <span class="logo logo-coinogas" style="width:104px;height:42px"></span>
+              <span class="tagline">Transportando bienestar</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ P4 · BANDEJA ============ -->
+      <section class="pantalla" id="p-bandeja">
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece">
+              <div class="eyebrow">Área de compras</div>
+              <h1>Bandeja de requerimientos</h1>
+              <p class="sub">Todo lo radicado en un solo lugar. Se acabó rastrear correos.</p>
+            </div>
+            <button class="btn primario" onclick="brindis('Se generó consolidado_requerimientos.xlsx con 12 registros.')">↓ Exportar consolidado</button>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi acento"><div class="eyebrow">Sin revisar</div><div class="valor" id="kSinRevisar">4</div><div class="delta baja">2 con prioridad alta</div></div>
+          <div class="kpi"><div class="eyebrow">En cotización</div><div class="valor">5</div><div class="mini">Contacto con proveedores</div></div>
+          <div class="kpi ambar"><div class="eyebrow">Devueltos</div><div class="valor">1</div><div class="mini">Esperando corrección</div></div>
+          <div class="kpi verde"><div class="eyebrow">Cerrados en agosto</div><div class="valor">2</div><div class="delta sube">▲ 18% vs. julio</div></div>
+        </div>
+
+        <div class="tarjeta">
+          <div class="filtros">
+            <div class="buscador"><span class="lupa">⌕</span><input class="control" id="buscar" placeholder="Buscar por consecutivo, solicitante o descripción" oninput="pintarBandeja()"></div>
+            <button class="chip on" data-f="estado" data-v="todos" onclick="filtro(this)">Todos</button>
+            <button class="chip" data-f="estado" data-v="Radicado" onclick="filtro(this)">Radicados</button>
+            <button class="chip" data-f="estado" data-v="En cotización" onclick="filtro(this)">En cotización</button>
+            <button class="chip" data-f="prioridad" data-v="Alta" onclick="filtro(this)">Solo prioridad alta</button>
+          </div>
+          <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th class="ord" onclick="ordenar('id')">Consecutivo ⇅</th>
+              <th>Solicitante</th><th class="oculta-movil">Área</th><th>Descripción</th>
+              <th class="ord" onclick="ordenar('prioridad')">Prioridad ⇅</th>
+              <th class="ord" onclick="ordenar('requerida')">Fecha requerida ⇅</th>
+              <th>Estado</th>
+            </tr></thead>
+            <tbody id="tbodyBandeja"></tbody>
+          </table>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--linea)" class="mini" id="pieBandeja"></div>
+        </div>
+      </section>
+
+      <!-- ============ P5 · FICHA ============ -->
+      <section class="pantalla" id="p-ficha">
+        <button class="btn plano" onclick="ir(volverA)" style="margin-bottom:12px">← Volver</button>
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece" style="flex:1;min-width:240px">
+              <span class="placa grande clara" id="fiPlaca">REQ-2026-0147</span>
+              <h1 style="margin-top:12px" id="fiTitulo">—</h1>
+              <p class="sub" id="fiSub">—</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span id="fiPrioridad"></span><span id="fiEstado"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rejilla" style="grid-template-columns:2fr 1fr" id="fichaRejilla">
+          <div>
+            <div class="tarjeta">
+              <div class="cab"><h3>Encabezado</h3></div>
+              <div class="cuerpo"><div class="datos" id="fiDatos"></div></div>
+            </div>
+
+            <div class="tarjeta" style="margin-top:16px">
+              <div class="cab"><h3>Justificación</h3></div>
+              <div class="cuerpo"><p style="margin:0" id="fiJust"></p></div>
+            </div>
+
+            <div class="tarjeta" style="margin-top:16px">
+              <div class="cab"><h3>Ítems y especificaciones</h3></div>
+              <div class="cuerpo" id="fiItems"></div>
+            </div>
+
+            <div class="tarjeta" style="margin-top:16px">
+              <div class="cab"><h3>Evidencia adjunta</h3></div>
+              <div class="cuerpo">
+                <div class="galeria" id="fiFotos"></div>
+                <p class="mini" style="margin-bottom:0">Toca una imagen para verla en tamaño completo.</p>
+              </div>
+            </div>
+
+            <div class="tarjeta" style="margin-top:16px">
+              <div class="cab"><h3>Proveedores sugeridos</h3></div>
+              <div class="cuerpo" id="fiProv"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="tarjeta">
+              <div class="cab"><h3>Acciones</h3></div>
+              <div class="cuerpo">
+                <div class="campo">
+                  <label>Estado del requerimiento</label>
+                  <select class="control" id="fiSelEstado" onchange="cambiarEstado()">
+                    <option>Radicado</option><option>En revisión</option><option>Devuelto</option>
+                    <option>En cotización</option><option>Cerrado</option>
+                  </select>
+                </div>
+                <button class="btn primario" style="width:100%;justify-content:center" onclick="brindis('Requerimiento marcado como En cotización.');marcarCotizacion()">Iniciar cotización</button>
+                <button class="btn peligro" style="width:100%;justify-content:center;margin-top:9px" onclick="abrirModal()">Devolver con observaciones</button>
+                <button class="btn secundario" style="width:100%;justify-content:center;margin-top:9px" onclick="brindis('Ficha exportada a PDF.')">Exportar ficha</button>
+              </div>
+            </div>
+
+            <div class="tarjeta" style="margin-top:16px">
+              <div class="cab"><h3>Trazabilidad</h3></div>
+              <div class="cuerpo">
+                <div class="linea-tiempo" id="fiTrazas"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ P6 · TABLERO ============ -->
+      <section class="pantalla" id="p-tablero">
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece">
+              <div class="eyebrow">Power BI · Vistas de solo lectura</div>
+              <h1>Indicadores de compras</h1>
+              <p class="sub">Se alimenta de las vistas analíticas. No toca las tablas transaccionales.</p>
+            </div>
+            <span class="placa clara">ACTUALIZADO HOY 06:00</span>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="eyebrow">Radicados en agosto</div><div class="valor">38</div><div class="delta sube">▲ 12% vs. julio</div></div>
+          <div class="kpi acento"><div class="eyebrow">Tiempo medio de atención</div><div class="valor">4,2 <span style="font-size:14px;font-family:var(--texto);color:var(--tinta-media)">días</span></div><div class="delta sube">▼ 1,1 días vs. julio</div></div>
+          <div class="kpi ambar"><div class="eyebrow">Tasa de devolución</div><div class="valor">8%</div><div class="delta sube">▼ desde 31% con Excel</div></div>
+          <div class="kpi verde"><div class="eyebrow">Radicados completos al primer envío</div><div class="valor">92%</div><div class="mini">Meta del proyecto: 90%</div></div>
+        </div>
+
+        <div class="rejilla" style="grid-template-columns:2fr 1fr">
+          <div class="tarjeta">
+            <div class="cab"><h3>Requerimientos radicados por mes</h3><span class="mini">2026</span></div>
+            <div class="cuerpo"><div class="barras" id="barras"></div></div>
+          </div>
+          <div class="tarjeta">
+            <div class="cab"><h3>Por prioridad</h3></div>
+            <div class="cuerpo" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:center">
+              <div class="dona" style="background:conic-gradient(var(--alerta) 0 22%,var(--ambar) 22% 63%,var(--azul) 63% 100%)"></div>
+              <div class="leyenda">
+                <div><i style="background:var(--alerta)"></i> Alta · 22%</div>
+                <div><i style="background:var(--ambar)"></i> Media · 41%</div>
+                <div><i style="background:var(--azul)"></i> Baja · 37%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tarjeta" style="margin-top:16px">
+          <div class="cab"><h3>Volumen por área solicitante</h3><span class="mini">Últimos 90 días</span></div>
+          <div class="cuerpo"><div class="b-horiz" id="porArea"></div></div>
+        </div>
+      </section>
+
+      <!-- ============ P7 · ADMINISTRACIÓN ============ -->
+      <section class="pantalla" id="p-admin">
+        <div class="banda">
+          <div class="contenido">
+            <div class="crece">
+              <div class="eyebrow">Panel de administración</div>
+              <h1>Datos maestros</h1>
+              <p class="sub">Lo que aparece en las listas del formulario se define aquí.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="pestanas" id="pestanasAdmin">
+          <button class="on" onclick="tabAdmin(this,'areas')">Áreas</button>
+          <button onclick="tabAdmin(this,'centros')">Centros de costo</button>
+          <button onclick="tabAdmin(this,'prioridades')">Prioridades</button>
+          <button onclick="tabAdmin(this,'usuarios')">Usuarios</button>
+        </div>
+
+        <div class="tarjeta">
+          <div class="cab"><h3 id="tituloAdmin">Áreas</h3>
+            <button class="btn secundario chico" onclick="brindis('Se abrió el formulario de creación.')">+ Agregar</button></div>
+          <div style="overflow-x:auto"><table><thead id="theadAdmin"></thead><tbody id="tbodyAdmin"></tbody></table></div>
+        </div>
+
+        <div class="aviso info" style="margin-top:16px">
+          <span class="ic">◈</span>
+          <div><b>Alcance del MVP</b>
+            La administración se resuelve con el panel nativo del framework. Esta pantalla ilustra qué se
+            parametriza, no un desarrollo a la medida.</div>
+        </div>
+      </section>
+
+    </div><!-- /lienzo -->
+
+    <footer class="pie-marca">
+      <span class="logo logo-coinogas" style="width:96px;height:39px"></span>
+      <span class="mini">Sistema de radicación de requerimientos de compra · Formato ADM-F-22 Rev. 02</span>
+      <span style="flex:1"></span>
+      <span class="tagline">Transportando bienestar</span>
+    </footer>
+
+    <!-- Barra inferior en móvil -->
+    <nav class="barra-movil" id="barraMovil"></nav>
+  </main>
+</div>
+
+<!-- Modal devolver -->
+<div class="velo" id="velo">
+  <div class="modal">
+    <div class="cab"><h3>Devolver con observaciones</h3></div>
+    <div class="cuerpo">
+      <p class="sub" style="margin-top:0">El solicitante recibe tu comentario y puede corregir sin abrir un correo.</p>
+      <div class="campo" style="margin-bottom:0">
+        <label>¿Qué falta o debe corregirse? <span class="req">*</span></label>
+        <textarea class="control" id="obs" placeholder="Ejemplo: falta el número de parte del transmisor y la fecha del último certificado de calibración."></textarea>
+      </div>
+    </div>
+    <div class="pie">
+      <button class="btn secundario" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn primario" onclick="devolver()">Devolver requerimiento</button>
+    </div>
+  </div>
+</div>
+
+<button class="btn secundario chico salir-movil" onclick="alternarMovil()">← Volver a escritorio</button>
+
+<div class="brindis" id="brindis"><span class="pt"></span><span id="brindisTexto"></span></div>
+
+<script>
+/* =========================================================
+   Estado de la demostración
+   ========================================================= */
+const REQS = [
+  {id:'REQ-2026-0147',sol:'David Cuadros',area:'Metrología',centro:'CC-410 · Sistemas metrológicos',
+   desc:'Calibración de equipo Fluke 725 con módulos de presión y RTD',prioridad:'Alta',
+   solicitada:'02/08/2026',requerida:'21/08/2026',estado:'Radicado',mio:true,
+   just:'El calibrador Fluke 725 es el patrón con el que se verifican los transmisores de presión y temperatura de la estación. Su certificado vence el 30 de agosto y sin él no podemos emitir informes metrológicos válidos ante el cliente.',
+   items:[
+     {c:1,d:'Calibración de calibrador de procesos Fluke 725 con certificado acreditado ONAC',cal:true,reem:false,pu:1850000,
+      spec:{Marca:'Fluke',Referencia:'725',Material:'N/A','Número de parte':'FLUKE-725/EUR',Color:'N/A',Dimensiones:'N/A',Presentación:'Servicio'}},
+     {c:1,d:'Calibración de módulo de presión PT100 de 0 a 100 psi',cal:true,reem:false,pu:620000,
+      spec:{Marca:'Fluke',Referencia:'700P07',Material:'Acero inoxidable','Número de parte':'700P07',Color:'N/A',Dimensiones:'N/A',Presentación:'Servicio'}},
+     {c:2,d:'Sonda RTD PT100 clase A, vaina de 6 mm, longitud 150 mm',cal:false,reem:true,pu:340000,
+      spec:{Marca:'WIKA',Referencia:'TR10-C',Material:'AISI 316L','Número de parte':'TR10-C-150',Color:'N/A',Dimensiones:'Ø6 mm × 150 mm',Presentación:'Unidad'}}
+   ],
+   fotos:['IMG_2041_fluke725.jpg','IMG_2042_placa.jpg','certificado_vigente.png'],
+   prov:[{n:'Metrotec Ingeniería S.A.S.',t:'318 445 2210'},{n:'Laboratorio Metrológico del Oriente',t:'607 645 8890'},{n:'Instrumentación Andina Ltda.',t:'320 771 0034'}],
+   sust:'Puede realizarse con cualquier laboratorio acreditado por la ONAC para las magnitudes de presión y temperatura.',
+   trazas:[{q:'02/08/2026 09:14',t:'David Cuadros radicó el requerimiento con 3 ítems.',a:true},
+           {q:'02/08/2026 09:14',t:'Se notificó a compras@coinogas.com.'},
+           {q:'02/08/2026 11:30',t:'Daryi Silva abrió la ficha.'}]},
+
+  {id:'REQ-2026-0146',sol:'Andrés Rueda',area:'Operación y mantenimiento',centro:'CC-120 · Gasoducto Floreña–Yopal',
+   desc:'Válvula de bola 2" clase 600 para línea de venteo',prioridad:'Alta',solicitada:'01/08/2026',
+   requerida:'18/08/2026',estado:'En cotización',
+   just:'La válvula actual presenta fuga por el vástago detectada en la inspección del 28 de julio.',
+   items:[{c:2,d:'Válvula de bola 2" clase 600, extremos bridados RF',cal:false,reem:false,pu:2400000,
+     spec:{Marca:'Bonney Forge',Referencia:'BOL-600',Material:'ASTM A105','Número de parte':'BF2600RF',Color:'N/A',Dimensiones:'2 in',Presentación:'Unidad'}}],
+   fotos:['valvula_actual.jpg'],prov:[{n:'Válvulas y Accesorios del Oriente',t:'607 691 4520'}],sust:'N/A',
+   trazas:[{q:'01/08/2026 07:52',t:'Andrés Rueda radicó el requerimiento.',a:true},
+           {q:'01/08/2026 15:10',t:'Daryi Silva cambió el estado a En cotización.'}]},
+
+  {id:'REQ-2026-0145',sol:'Laura Peña',area:'HSEQ',centro:'CC-900 · Administración',
+   desc:'Dotación de seguridad: 12 cascos y 24 pares de guantes dieléctricos',prioridad:'Media',
+   solicitada:'31/07/2026',requerida:'30/08/2026',estado:'En cotización',
+   just:'Reposición semestral de elementos de protección personal para el personal de campo.',
+   items:[{c:12,d:'Casco de seguridad clase E con barbuquejo',cal:false,reem:false,pu:78000,
+     spec:{Marca:'3M',Referencia:'H-700',Material:'Polietileno','Número de parte':'H-700R',Color:'Blanco',Dimensiones:'Ajustable',Presentación:'Unidad'}},
+    {c:24,d:'Guante dieléctrico clase 0, 1000 V',cal:false,reem:false,pu:145000,
+     spec:{Marca:'Salisbury',Referencia:'E011B',Material:'Caucho natural','Número de parte':'E011B/9',Color:'Negro',Dimensiones:'Talla 9',Presentación:'Par'}}],
+   fotos:[],prov:[{n:'Seguridad Industrial Santander',t:'607 638 9911'}],sust:'N/A',
+   trazas:[{q:'31/07/2026 10:05',t:'Laura Peña radicó el requerimiento.',a:true}]},
+
+  {id:'REQ-2026-0144',sol:'Camilo Ortiz',area:'Ingeniería',centro:'CC-305 · Planta de procesamiento Yopal',
+   desc:'Licencia anual de software de simulación de procesos',prioridad:'Baja',solicitada:'30/07/2026',
+   requerida:'01/10/2026',estado:'Radicado',
+   just:'Renovación de la licencia usada en el dimensionamiento de líneas y equipos de la planta.',
+   items:[{c:1,d:'Licencia anual monousuario de software de simulación',cal:false,reem:false,pu:9800000,
+     spec:{Marca:'N/A',Referencia:'N/A',Material:'N/A','Número de parte':'N/A',Color:'N/A',Dimensiones:'N/A',Presentación:'Licencia'}}],
+   fotos:[],prov:[],sust:'N/A',
+   trazas:[{q:'30/07/2026 16:40',t:'Camilo Ortiz radicó el requerimiento.',a:true}]},
+
+  {id:'REQ-2026-0143',sol:'David Cuadros',area:'Metrología',centro:'CC-410 · Sistemas metrológicos',
+   desc:'Transmisor de presión para estación de medición',prioridad:'Media',solicitada:'28/07/2026',
+   requerida:'25/08/2026',estado:'Devuelto',mio:true,
+   just:'Reemplazo del transmisor de presión de la estación por lectura errática desde el 20 de julio.',
+   items:[{c:1,d:'Transmisor de presión manométrica 0–150 psi, salida 4-20 mA',cal:true,reem:false,pu:0,
+     spec:{Marca:'Rosemount',Referencia:'3051',Material:'Acero inoxidable','Número de parte':'Pendiente',Color:'N/A',Dimensiones:'N/A',Presentación:'Unidad'}}],
+   fotos:['transmisor_actual.jpg'],prov:[{n:'Instrumentación Andina Ltda.',t:'320 771 0034'}],sust:'N/A',
+   obs:'Falta el número de parte completo del transmisor y la fecha de vencimiento del certificado de calibración vigente. Sin eso el proveedor no puede cotizar.',
+   trazas:[{q:'28/07/2026 08:22',t:'David Cuadros radicó el requerimiento.'},
+           {q:'29/07/2026 09:05',t:'Daryi Silva devolvió el requerimiento con observaciones.',a:true}]},
+
+  {id:'REQ-2026-0142',sol:'Marcela Gómez',area:'Administrativa',centro:'CC-900 · Administración',
+   desc:'Papelería y suministros de oficina · tercer trimestre',prioridad:'Baja',solicitada:'25/07/2026',
+   requerida:'12/08/2026',estado:'Cerrado',
+   just:'Suministro trimestral de papelería para la sede administrativa.',
+   items:[{c:10,d:'Resma de papel carta 75 g',cal:false,reem:false,pu:18500,
+     spec:{Marca:'Reprograf',Referencia:'75g',Material:'Papel','Número de parte':'N/A',Color:'Blanco',Dimensiones:'Carta',Presentación:'Resma'}}],
+   fotos:[],prov:[],sust:'N/A',
+   trazas:[{q:'25/07/2026 11:00',t:'Marcela Gómez radicó el requerimiento.'},
+           {q:'02/08/2026 14:20',t:'Daryi Silva cerró el requerimiento. Compra recibida.',a:true}]}
+];
+
+const PERFILES = {
+  solicitante:{nombre:'David Cuadros',rol:'Solicitante · Metrología',ini:'DC',inicio:'p-inicio',
+    menu:[['p-inicio','▤','Mis requerimientos'],['p-formulario','✎','Nuevo requerimiento']]},
+  analista:{nombre:'Daryi Silva',rol:'Analista de compras',ini:'DS',inicio:'p-bandeja',
+    menu:[['p-bandeja','▦','Bandeja'],['p-tablero','◐','Indicadores'],['p-formulario','✎','Radicar por un tercero']]},
+  admin:{nombre:'Juan P. Posso',rol:'Administrador del sistema',ini:'JP',inicio:'p-admin',
+    menu:[['p-admin','⚙','Datos maestros'],['p-bandeja','▦','Bandeja'],['p-tablero','◐','Indicadores']]}
+};
+
+let perfil='solicitante', pantallaActual='p-inicio', volverA='p-bandeja', paso=1,
+    consecutivo=148, fReq=null, orden={campo:null,asc:true}, fEstado='todos', fPrioridad=null;
+
+const cop=n=>'$ '+(n||0).toLocaleString('es-CO');
+const $=id=>document.getElementById(id);
+
+/* ---------- Navegación ---------- */
+function entrar(p){
+  perfil=p;
+  $('portada').style.display='none';
+  $('app').style.display='grid';
+  const P=PERFILES[p];
+  $('nombreUsuario').textContent=P.nombre;
+  $('rolUsuario').textContent=P.rol;
+  $('avatarIni').textContent=P.ini;
+  pintarNav();
+  ir(P.inicio);
+  window.scrollTo(0,0);
+}
+function volverPortada(){
+  $('app').style.display='none';
+  $('portada').style.display='grid';
+  $('app').classList.remove('vista-movil');
+  document.body.classList.remove('modo-movil');
+  $('btnMovil').textContent='Ver en móvil';
+}
+function pintarNav(){
+  const P=PERFILES[perfil];
+  $('nav').innerHTML='<div class="grupo">'+P.rol.split('·')[0].trim()+'</div>'+
+    P.menu.map(([id,ic,tx])=>`<button data-p="${id}" onclick="ir('${id}')"><span class="ico">${ic}</span>${tx}</button>`).join('');
+  $('barraMovil').innerHTML=P.menu.map(([id,ic,tx])=>
+    `<button data-p="${id}" onclick="ir('${id}')"><span class="ico">${ic}</span>${tx.split(' ')[0]}</button>`).join('');
+  marcarNav();
+}
+function marcarNav(){
+  document.querySelectorAll('#nav button,#barraMovil button').forEach(b=>
+    b.classList.toggle('on',b.dataset.p===pantallaActual));
+}
+function ir(id){
+  document.querySelectorAll('.pantalla').forEach(s=>s.classList.remove('activa'));
+  $(id).classList.add('activa');
+  pantallaActual=id;
+  marcarNav();
+  if(id==='p-inicio') pintarMios();
+  if(id==='p-bandeja') pintarBandeja();
+  if(id==='p-tablero') pintarTablero();
+  if(id==='p-admin') pintarAdmin('areas');
+  (document.querySelector('.vista-movil main')||window).scrollTo(0,0);
+}
+function alternarMovil(){
+  const a=$('app'), m=a.classList.toggle('vista-movil');
+  document.body.classList.toggle('modo-movil',m);
+  $('btnMovil').textContent=m?'Ver en escritorio':'Ver en móvil';
+  window.scrollTo(0,0);
+}
+
+/* ---------- Aviso flotante ---------- */
+let tBrindis;
+function brindis(t,tipo){
+  $('brindisTexto').textContent=t;
+  document.querySelector('#brindis .pt').style.background =
+    tipo==='error' ? 'var(--alerta)' : tipo==='info' ? 'var(--cian)' : 'var(--verde)';
+  $('brindis').classList.add('ver');
+  clearTimeout(tBrindis);
+  tBrindis=setTimeout(()=>$('brindis').classList.remove('ver'),3400);
+}
+
+/* =========================================================
+   Formulario
+   ========================================================= */
+let items=[], fotos=[], provs=[];
+
+function nuevoRequerimiento(){
+  items=[{c:1,d:'',cal:false,reem:false,pu:0,spec:{}}];
+  fotos=[]; provs=[];
+  paso=1;
+  $('f-justificacion').value=''; $('cont').textContent='0';
+  $('chkSust').checked=false; $('f-sustitutos').style.display='none'; $('f-sustitutos').value='';
+  $('avisoValidacion').innerHTML='';
+  document.querySelectorAll('.campo').forEach(c=>c.classList.remove('error'));
+  pintarItems(); pintarFotos(); pintarProvs();
+  ir('p-formulario'); irPaso(1);
+}
+
+function irPaso(n){
+  paso=n;
+  for(let i=1;i<=5;i++) $('paso'+i).style.display=(i===n?'block':'none');
+  document.querySelectorAll('.lp-paso').forEach((b,i)=>{
+    b.classList.toggle('activo',i+1===n);
+    b.classList.toggle('hecho',i+1<n);
+  });
+  $('lpFlujo').style.width=((n-1)/4*100)+'%';
+  $('btnAtras').style.visibility=n===1?'hidden':'visible';
+  $('btnSiguiente').textContent=n===5?'Radicar requerimiento':'Continuar →';
+  if(n===3) pintarSpecs();
+  if(n===5) pintarResumen();
+  (document.querySelector('.vista-movil main')||window).scrollTo(0,0);
+}
+function pasoAdelante(){ if(paso===5) radicar(); else irPaso(paso+1); }
+function pasoAtras(){ if(paso>1) irPaso(paso-1); }
+
+/* ---------- Ítems ---------- */
+function pintarItems(){
+  $('listaItems').innerHTML=items.map((it,i)=>`
+    <div class="item">
+      <div class="item-cab">
+        <span class="item-n">${i+1}</span>
+        <span class="crece">Ítem ${i+1}</span>
+        ${it.cal?'<span class="etiq cal">CALIBRACIÓN</span>':''}
+        ${it.reem?'<span class="etiq reem">REEMBOLSABLE</span>':''}
+        ${items.length>1?`<button class="btn plano chico" onclick="quitarItem(${i})">Eliminar</button>`:''}
+      </div>
+      <div class="item-cuerpo">
+        <div class="campo ${it._err?'error':''}">
+          <label>Descripción del ítem <span class="req">*</span></label>
+          <textarea class="control" style="min-height:64px" placeholder="Describe con precisión el bien o servicio."
+            oninput="setItem(${i},'d',this.value)">${it.d}</textarea>
+          <div class="msg">⚠ Describe el ítem ${i+1}.</div>
+        </div>
+        <div class="fila-3">
+          <div class="campo"><label>Cantidad <span class="req">*</span></label>
+            <input type="number" min="1" class="control" value="${it.c}" oninput="setItem(${i},'c',this.value)"></div>
+          <div class="campo"><label>Precio de referencia unitario</label>
+            <input type="number" min="0" class="control" value="${it.pu||''}" placeholder="Opcional"
+              oninput="setItem(${i},'pu',this.value)"></div>
+          <div class="campo"><label>Total del ítem</label>
+            <input class="control total-item" readonly value="${cop(it.c*it.pu)}"></div>
+        </div>
+        <div style="display:flex;gap:22px;flex-wrap:wrap">
+          <label class="check"><input type="checkbox" ${it.cal?'checked':''} onchange="setItem(${i},'cal',this.checked)"> Requiere calibración</label>
+          <label class="check"><input type="checkbox" ${it.reem?'checked':''} onchange="setItem(${i},'reem',this.checked)"> Es reembolsable</label>
+        </div>
+      </div>
+    </div>`).join('');
+  $('totalGeneral').textContent=cop(items.reduce((s,i)=>s+i.c*i.pu,0));
+}
+function setItem(i,k,v){
+  items[i][k]=(k==='c'||k==='pu')?(+v||0):v;
+  if(k==='d'&&v.trim()) items[i]._err=false;
+  if(k==='cal'||k==='reem'){ pintarItems(); return; }
+  actualizarTotales();
+}
+function actualizarTotales(){
+  document.querySelectorAll('#listaItems .item').forEach((el,i)=>{
+    const t=el.querySelector('.total-item');
+    if(t&&items[i]) t.value=cop(items[i].c*items[i].pu);
+  });
+  $('totalGeneral').textContent=cop(items.reduce((s,x)=>s+x.c*x.pu,0));
+}
+function agregarItem(){ items.push({c:1,d:'',cal:false,reem:false,pu:0,spec:{}}); pintarItems(); }
+function quitarItem(i){ items.splice(i,1); pintarItems(); }
+
+/* ---------- Especificaciones ---------- */
+const CAMPOS_SPEC=['Marca','Material','Número de parte','Referencia','Color','Ancho','Largo','Alto','Diámetro','Presentación','Otras'];
+function pintarSpecs(){
+  $('listaSpecs').innerHTML=items.map((it,i)=>`
+    <div class="item">
+      <div class="item-cab"><span class="item-n">${i+1}</span>
+        <span class="crece">${it.d?it.d.slice(0,68):'Ítem sin descripción'}</span></div>
+      <div class="item-cuerpo">
+        <div class="fila-3">
+          ${CAMPOS_SPEC.map(c=>`<div class="campo"><label>${c}</label>
+            <input class="control" value="${it.spec[c]||''}" placeholder="N/A"
+              oninput="items[${i}].spec['${c}']=this.value"></div>`).join('')}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+/* ---------- Fotos ---------- */
+const NOMBRES=['IMG_2041.jpg','IMG_2042.jpg','placa_equipo.png','detalle_conexion.jpg','certificado.png'];
+function adjuntar(origen){
+  if(fotos.length>=5){ brindis('Máximo 5 imágenes por requerimiento.','info'); return; }
+  fotos.push(origen==='camara'?`camara_${Date.now().toString().slice(-4)}.jpg`:NOMBRES[fotos.length]);
+  pintarFotos();
+  brindis(origen==='camara'?'Foto capturada y adjuntada.':'Imagen adjuntada.');
+}
+function pintarFotos(){
+  $('galeria').innerHTML=fotos.map((f,i)=>miniatura(f,`<button class="quitar" onclick="fotos.splice(${i},1);pintarFotos()" aria-label="Quitar">×</button>`)).join('')
+    || '<p class="mini" style="margin:0">Aún no hay imágenes. El área de compras agradece por lo menos una.</p>';
+}
+function miniatura(nombre,extra){
+  return `<div class="foto">${extra||''}
+    <div class="lienzo-foto">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#0B3A5D" stroke-width="1.3" opacity=".65">
+        <rect x="2.5" y="4.5" width="19" height="15" rx="2"/><circle cx="12" cy="12" r="3.6"/>
+        <path d="M7.5 4.5l1.2-2h6.6l1.2 2"/></svg>
+    </div>
+    <div class="pie" title="${nombre}">${nombre}</div></div>`;
+}
+
+/* ---------- Proveedores ---------- */
+function pintarProvs(){
+  $('listaProv').innerHTML=provs.map((p,i)=>`
+    <div class="fila" style="align-items:end">
+      <div class="campo"><label>Proveedor ${i+1}</label>
+        <input class="control" value="${p.n}" placeholder="Razón social" oninput="provs[${i}].n=this.value"></div>
+      <div class="campo" style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:1"><label>Teléfono</label>
+          <input class="control" value="${p.t}" placeholder="300 000 0000" oninput="provs[${i}].t=this.value"></div>
+        <button class="btn plano" onclick="provs.splice(${i},1);pintarProvs()" style="margin-bottom:1px">Quitar</button>
+      </div>
+    </div>`).join('');
+  $('contProv').textContent=provs.length+' de 3';
+  $('btnProv').disabled=provs.length>=3;
+}
+function agregarProveedor(){ if(provs.length<3){ provs.push({n:'',t:''}); pintarProvs(); } }
+function toggleSust(){ $('f-sustitutos').style.display=$('chkSust').checked?'block':'none'; }
+
+/* ---------- Resumen ---------- */
+function dato(et,vl){ return `<div class="dato"><div class="et">${et}</div><div class="vl">${vl||'—'}</div></div>`; }
+function pintarResumen(){
+  const total=items.reduce((s,i)=>s+i.c*i.pu,0);
+  $('resumen').innerHTML=
+    dato('Solicitante',$('f-solicitante').value)+
+    dato('Área o proyecto',$('f-area').value)+
+    dato('Centro de costo',$('f-centro').value)+
+    dato('Ítems',items.length+(items.length===1?' ítem':' ítems'))+
+    dato('Evidencias',fotos.length+' imagen(es)')+
+    dato('Proveedores sugeridos',provs.filter(p=>p.n).length)+
+    dato('Prioridad',$('f-prioridad').value)+
+    dato('Total de referencia',cop(total));
+}
+
+/* ---------- Validación y radicación ---------- */
+function radicar(){
+  const faltantes=[];
+  const marcar=(cid,ok,texto)=>{
+    $(cid).classList.toggle('error',!ok);
+    if(!ok) faltantes.push(texto);
+  };
+  marcar('c-solicitante',$('f-solicitante').value.trim()!=='','Nombre del solicitante');
+  marcar('c-area',$('f-area').value!=='','Área o proyecto');
+  marcar('c-centro',$('f-centro').value!=='','Centro de costo');
+  marcar('c-justificacion',$('f-justificacion').value.trim()!=='','Justificación del requerimiento');
+  const hoy=new Date('2026-08-05'), fr=$('f-fecha').value?new Date($('f-fecha').value):null;
+  marcar('c-fecha',!!fr&&fr>=hoy,'Fecha requerida de recepción');
+  let itemsMal=false;
+  items.forEach(it=>{ it._err=!it.d.trim(); if(it._err) itemsMal=true; });
+  if(itemsMal) faltantes.push('Descripción de todos los ítems');
+
+  if(faltantes.length){
+    $('avisoValidacion').innerHTML=`
+      <div class="aviso error">
+        <span class="ic">⚠</span>
+        <div><b>No se puede radicar todavía: faltan ${faltantes.length} dato(s)</b>
+          <ul>${faltantes.map(f=>'<li>'+f+'</li>').join('')}</ul>
+          <div class="mini" style="margin-top:7px;color:inherit">Lo que ya diligenciaste se conservó.</div>
+        </div>
+      </div>`;
+    pintarItems();
+    const primerPaso=$('c-justificacion').classList.contains('error')||$('c-area').classList.contains('error')
+      ||$('c-centro').classList.contains('error')||$('c-solicitante').classList.contains('error');
+    if(primerPaso) irPaso(1); else if(itemsMal) irPaso(2);
+    brindis('Revisa los campos marcados en rojo.','error');
+    return;
+  }
+
+  consecutivo++;
+  const id='REQ-2026-'+String(consecutivo).padStart(4,'0');
+  const total=items.reduce((s,i)=>s+i.c*i.pu,0);
+  REQS.unshift({
+    id,sol:$('f-solicitante').value,area:$('f-area').value,centro:$('f-centro').value,
+    desc:items[0].d.slice(0,70)||'Requerimiento sin descripción',prioridad:$('f-prioridad').value,
+    solicitada:'05/08/2026',requerida:fmt($('f-fecha').value),estado:'Radicado',mio:true,
+    just:$('f-justificacion').value,items:JSON.parse(JSON.stringify(items)),
+    fotos:[...fotos],prov:provs.filter(p=>p.n),sust:$('f-sustitutos').value||'N/A',
+    trazas:[{q:'05/08/2026 '+hora(),t:$('f-solicitante').value+' radicó el requerimiento con '+items.length+' ítem(s).',a:true},
+            {q:'05/08/2026 '+hora(),t:'Se notificó a compras@coinogas.com.'}]
+  });
+  $('placaNueva').textContent=id;
+  $('resumenFinal').innerHTML=
+    dato('Área',$('f-area').value)+dato('Centro de costo',$('f-centro').value)+
+    dato('Ítems radicados',items.length)+dato('Prioridad',$('f-prioridad').value)+
+    dato('Fecha requerida',fmt($('f-fecha').value))+dato('Total de referencia',cop(total));
+  ir('p-confirmacion');
+}
+const fmt=s=>s?s.split('-').reverse().join('/'):'—';
+const hora=()=>new Date().toTimeString().slice(0,5);
+
+/* Contador de la justificación */
+$('f-justificacion').addEventListener('input',e=>$('cont').textContent=e.target.value.length);
+
+/* =========================================================
+   Historial del solicitante
+   ========================================================= */
+function pintarMios(){
+  $('tbodyMios').innerHTML=REQS.filter(r=>r.mio).map(r=>`
+    <tr class="clic" onclick="irFicha('${r.id}')">
+      <td><span class="mono" style="font-weight:600">${r.id}</span></td>
+      <td>${r.desc}</td>
+      <td>${ins(r.prioridad)}</td>
+      <td class="num">${r.requerida}</td>
+      <td>${insEstado(r.estado)}</td>
+    </tr>`).join('');
+}
+const ins=p=>`<span class="ins ${p.toLowerCase()}">${p}</span>`;
+const insEstado=e=>{
+  const k={'Radicado':'radicado','En revisión':'revision','Devuelto':'devuelto','En cotización':'cotizacion','Cerrado':'cerrado'}[e];
+  return `<span class="ins ${k}">${e}</span>`;
+};
+
+/* =========================================================
+   Bandeja
+   ========================================================= */
+function filtro(b){
+  const f=b.dataset.f, v=b.dataset.v;
+  if(f==='estado'){ fEstado=v; fPrioridad=null;
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); b.classList.add('on'); }
+  else { fPrioridad=fPrioridad===v?null:v; fEstado='todos';
+    document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+    if(fPrioridad) b.classList.add('on'); else document.querySelector('.chip[data-v="todos"]').classList.add('on'); }
+  pintarBandeja();
+}
+function ordenar(campo){
+  orden.asc = orden.campo===campo ? !orden.asc : true;
+  orden.campo=campo; pintarBandeja();
+}
+function pintarBandeja(){
+  const q=($('buscar').value||'').toLowerCase();
+  let lista=REQS.filter(r=>
+    (fEstado==='todos'||r.estado===fEstado) &&
+    (!fPrioridad||r.prioridad===fPrioridad) &&
+    (!q||(r.id+r.sol+r.desc+r.area).toLowerCase().includes(q)));
+  if(orden.campo){
+    const peso={Alta:3,Media:2,Baja:1};
+    lista=[...lista].sort((a,b)=>{
+      let x,y;
+      if(orden.campo==='prioridad'){x=peso[a.prioridad];y=peso[b.prioridad];}
+      else if(orden.campo==='requerida'){x=a.requerida.split('/').reverse().join('');y=b.requerida.split('/').reverse().join('');}
+      else {x=a.id;y=b.id;}
+      return (x>y?1:x<y?-1:0)*(orden.asc?1:-1);
+    });
+  }
+  $('tbodyBandeja').innerHTML=lista.map(r=>`
+    <tr class="clic" onclick="irFicha('${r.id}')">
+      <td><span class="mono" style="font-weight:600">${r.id}</span></td>
+      <td>${r.sol}</td>
+      <td class="oculta-movil">${r.area}</td>
+      <td style="max-width:280px">${r.desc}</td>
+      <td>${ins(r.prioridad)}</td>
+      <td class="num">${r.requerida}</td>
+      <td>${insEstado(r.estado)}</td>
+    </tr>`).join('') || `<tr><td colspan="7" style="padding:34px;text-align:center">
+      <div style="font-weight:600;margin-bottom:4px">Nada coincide con este filtro</div>
+      <div class="mini">Limpia la búsqueda o elige Todos para ver la bandeja completa.</div></td></tr>`;
+  $('pieBandeja').textContent=`Mostrando ${lista.length} de ${REQS.length} requerimientos`;
+  $('kSinRevisar').textContent=REQS.filter(r=>r.estado==='Radicado').length;
+}
+
+/* =========================================================
+   Ficha
+   ========================================================= */
+function irFicha(id){
+  fReq=REQS.find(r=>r.id===id);
+  volverA = perfil==='solicitante' ? 'p-inicio' : 'p-bandeja';
+  const r=fReq;
+  $('fiPlaca').textContent=r.id;
+  $('fiTitulo').textContent=r.desc;
+  $('fiSub').textContent=`Radicado por ${r.sol} · ${r.area} · ${r.solicitada}`;
+  $('fiPrioridad').innerHTML=ins(r.prioridad);
+  $('fiEstado').innerHTML=insEstado(r.estado);
+  $('fiSelEstado').value=r.estado;
+  $('fiDatos').innerHTML=dato('Solicitante',r.sol)+dato('Área o proyecto',r.area)+dato('Centro de costo',r.centro)+
+    dato('Fecha de solicitud',r.solicitada)+dato('Fecha requerida',r.requerida)+
+    dato('Total de referencia',cop((r.items||[]).reduce((s,i)=>s+i.c*i.pu,0)));
+  $('fiJust').textContent=r.just;
+  $('fiItems').innerHTML=(r.items||[]).map((it,i)=>`
+    <div class="item">
+      <div class="item-cab"><span class="item-n">${i+1}</span>
+        <span class="crece">${it.d}</span>
+        ${it.cal?'<span class="etiq cal">CALIBRACIÓN</span>':''}
+        ${it.reem?'<span class="etiq reem">REEMBOLSABLE</span>':''}</div>
+      <div class="item-cuerpo">
+        <div class="datos">
+          ${dato('Cantidad',it.c)}${dato('Precio unitario',it.pu?cop(it.pu):'No registrado')}
+          ${Object.entries(it.spec||{}).map(([k,v])=>dato(k,v)).join('')}
+        </div>
+      </div>
+    </div>`).join('') || '<p class="mini">Sin ítems.</p>';
+  $('fiFotos').innerHTML=(r.fotos||[]).map(f=>miniatura(f)).join('')
+    || '<p class="mini" style="margin:0">Este requerimiento llegó sin evidencia fotográfica.</p>';
+  $('fiProv').innerHTML=(r.prov||[]).length
+    ? '<div class="datos">'+r.prov.map(p=>dato(p.n,p.t)).join('')+'</div>'
+      +`<p class="mini" style="margin-bottom:0">Sustitutos: ${r.sust}</p>`
+    : '<p class="mini" style="margin:0">El solicitante no sugirió proveedores.</p>';
+  $('fiTrazas').innerHTML=(r.trazas||[]).map(t=>
+    `<div class="hito ${t.a?'act':''}"><div class="cuando">${t.q}</div><div>${t.t}</div></div>`).join('');
+  document.querySelectorAll('.bloque-obs').forEach(e=>e.remove());
+  if(r.obs){
+    $('fiTrazas').insertAdjacentHTML('afterend',
+      `<div class="bloque-obs" style="margin:16px 0 0;background:#FDF3F2;border:1px solid #EFC9C3;color:#8A2E22;display:flex;gap:11px;padding:13px 15px;border-radius:8px;font-size:13px">
+        <span>⚑</span><div><b style="display:block;margin-bottom:2px">Observaciones de compras</b>${r.obs}</div></div>`);
+  }
+  ir('p-ficha');
+}
+function cambiarEstado(){
+  fReq.estado=$('fiSelEstado').value;
+  $('fiEstado').innerHTML=insEstado(fReq.estado);
+  brindis('Estado actualizado a '+fReq.estado+'.');
+}
+function marcarCotizacion(){
+  fReq.estado='En cotización'; $('fiSelEstado').value='En cotización';
+  $('fiEstado').innerHTML=insEstado(fReq.estado);
+  fReq.trazas.push({q:'05/08/2026 '+hora(),t:'Daryi Silva inició el proceso de cotización.',a:true});
+}
+function abrirModal(){ $('velo').classList.add('abierto'); $('obs').focus(); }
+function cerrarModal(){ $('velo').classList.remove('abierto'); }
+function devolver(){
+  const t=$('obs').value.trim();
+  if(!t){ brindis('Escribe qué debe corregir el solicitante.','error'); return; }
+  fReq.estado='Devuelto'; fReq.obs=t;
+  fReq.trazas.push({q:'05/08/2026 '+hora(),t:'Daryi Silva devolvió el requerimiento con observaciones.',a:true});
+  cerrarModal(); $('obs').value='';
+  brindis('Requerimiento devuelto. El solicitante fue notificado.');
+  irFicha(fReq.id);
+}
+$('velo').addEventListener('click',e=>{ if(e.target===$('velo')) cerrarModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') cerrarModal(); });
+
+/* =========================================================
+   Tablero
+   ========================================================= */
+function pintarTablero(){
+  const meses=[['Mar',21],['Abr',26],['May',24],['Jun',31],['Jul',34],['Ago',38]];
+  const max=40;
+  $('barras').innerHTML=meses.map(([m,v])=>`
+    <div class="barra">
+      <div class="cuerpo-b" style="height:${v/max*100}%"><span>${v}</span></div>
+      <div class="mes">${m}</div>
+    </div>`).join('');
+  const areas=[['Operación y mantenimiento',34],['Metrología',26],['Ingeniería',18],['HSEQ',12],['Administrativa',10]];
+  $('porArea').innerHTML=areas.map(([a,v])=>`
+    <div class="fila-b"><span>${a}</span>
+      <div class="pista"><div class="relleno" style="width:${v/34*100}%"></div></div>
+      <span class="num" style="text-align:right">${v}</span></div>`).join('');
+}
+
+/* =========================================================
+   Administración
+   ========================================================= */
+const ADMIN={
+  areas:{t:'Áreas',cols:['Código','Nombre','Responsable','Estado'],filas:[
+    ['A-01','Operación y mantenimiento','Andrés Rueda','Activa'],
+    ['A-02','Metrología','David Cuadros','Activa'],
+    ['A-03','Ingeniería','Camilo Ortiz','Activa'],
+    ['A-04','HSEQ','Laura Peña','Activa'],
+    ['A-05','Administrativa','Marcela Gómez','Activa']]},
+  centros:{t:'Centros de costo',cols:['Código','Descripción','Proyecto asociado','Estado'],filas:[
+    ['CC-120','Gasoducto Floreña–Yopal','Transporte de gas','Activo'],
+    ['CC-305','Planta de procesamiento Yopal','Procesamiento','Activo'],
+    ['CC-410','Sistemas metrológicos','Medición y calidad','Activo'],
+    ['CC-900','Administración','—','Activo']]},
+  prioridades:{t:'Prioridades',cols:['Nivel','Descripción','Días objetivo de atención','Estado'],filas:[
+    ['Alta','La operación se detiene sin esta compra','3','Activa'],
+    ['Media','Necesaria dentro del mes','10','Activa'],
+    ['Baja','Programable sin afectar la operación','30','Activa']]},
+  usuarios:{t:'Usuarios',cols:['Nombre','Correo','Perfil','Estado'],filas:[
+    ['David Cuadros','dacuadrosm@coinogas.com','Solicitante','Activo'],
+    ['Daryi Silva','dsilva@coinogas.com','Analista de compras','Activo'],
+    ['Sergio Quintero','squintero@coinogas.com','Analista de compras','Activo'],
+    ['Juan P. Posso','jpposso@coinogas.com','Administrador','Activo']]}
+};
+function tabAdmin(btn,k){
+  document.querySelectorAll('#pestanasAdmin button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on'); pintarAdmin(k);
+}
+function pintarAdmin(k){
+  const d=ADMIN[k];
+  $('tituloAdmin').textContent=d.t;
+  $('theadAdmin').innerHTML='<tr>'+d.cols.map(c=>`<th>${c}</th>`).join('')+'<th></th></tr>';
+  $('tbodyAdmin').innerHTML=d.filas.map(f=>'<tr>'+f.map((c,i)=>
+      i===0?`<td class="mono" style="font-weight:600">${c}</td>`
+      :i===f.length-1?`<td><span class="ins cerrado">${c}</span></td>`:`<td>${c}</td>`).join('')
+    +'<td style="text-align:right"><button class="btn plano chico" onclick="brindis(\'Se abrió el registro para edición.\')">Editar</button></td></tr>').join('');
+}
+
+/* Burbujas de gas de la portada */
+(function(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cont=$('burbujas'); if(!cont) return;
+  let html='';
+  for(let i=0;i<16;i++){
+    const d=8+Math.random()*34, x=Math.random()*100,
+          dur=14+Math.random()*16, ret=Math.random()*18;
+    html+=`<i style="width:${d}px;height:${d*.44}px;left:${x}%;border-radius:50%;
+      animation-duration:${dur}s;animation-delay:-${ret}s;transform:rotate(-18deg)"></i>`;
+  }
+  cont.innerHTML=html;
+})();
+
+/* Arranque */
+pintarMios();
+</script>
+</body>
+</html>
