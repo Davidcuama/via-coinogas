@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block titulo %}Bandeja de compras · VIA Compras{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 1140px;">
+
+  <div class="banda mb-4">
+    <div class="eyebrow">Área de compras</div>
+    <h1>Bandeja de requerimientos</h1>
+    <p class="sub">Todo lo radicado, de lo más reciente a lo más antiguo.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Radicaciones</h2>
+      <span class="mini">{{ page_obj.paginator.count }} en total</span>
+    </div>
+    <div class="card-body p-0">
+      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True vacio="Todavía no hay requerimientos radicados." %}
+    </div>
+  </div>
+
+  <p class="form-text mt-3">
+    Versión preliminar de la bandeja. Los filtros, el ordenamiento y la gestión
+    de estados llegan con las historias HU-20 a HU-24.
+  </p>
+
+</div>
+{% endblock %}

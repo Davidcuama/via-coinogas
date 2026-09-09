@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block titulo %}Ingresar · VIA Compras{% endblock %}
+
+{% block cuerpo %}
+<div class="portada portada-ingreso">
+  <div class="textura" aria-hidden="true"></div>
+
+  <div class="ingreso-caja">
+
+    <div class="cabecera-marca">
+      <div class="logo-plato">
+        <img src="{% static 'requerimientos/logo-coinogas.png' %}"
+             alt="Coinogas S.A. E.S.P." class="ingreso-logo">
+      </div>
+      <div class="divisor" aria-hidden="true"></div>
+      <div class="rotulo">Sistema de radicación<b>VIA Compras</b></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>Ingresar</h2></div>
+      <div class="card-body">
+
+        {% if form.errors %}
+          <div class="alert alert-danger" role="alert" id="error-ingreso">
+            Usuario o contraseña incorrectos. Revisa y vuelve a intentarlo.
+          </div>
+        {% endif %}
+
+        {% if next %}
+          <p class="form-text mb-3">Ingresa para continuar a la pantalla que pediste.</p>
+        {% endif %}
+
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label for="{{ form.username.id_for_label }}" class="form-label">Usuario</label>
+            <input type="text" name="{{ form.username.html_name }}"
+                   id="{{ form.username.id_for_label }}" class="form-control"
+                   autocomplete="username" autofocus required>
+          </div>
+
+          <div class="mb-3">
+            <label for="{{ form.password.id_for_label }}" class="form-label">Contraseña</label>
+            <input type="password" name="{{ form.password.html_name }}"
+                   id="{{ form.password.id_for_label }}" class="form-control"
+                   autocomplete="current-password" required>
+          </div>
+
+          <input type="hidden" name="next" value="{{ next }}">
+          <button type="submit" class="btn btn-primary w-100">Ingresar</button>
+        </form>
+
+        <p class="form-text mt-3 mb-0">
+          ¿No tienes cuenta? El administrador del sistema la crea desde el panel
+          de administración.
+        </p>
+
+      </div>
+    </div>
+
+    <p class="ingreso-volver">
+      <a href="{% url 'portada' %}">← Volver a la portada</a>
+    </p>
+
+  </div>
+</div>
+{% endblock %}

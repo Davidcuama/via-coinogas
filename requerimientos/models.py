@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction
@@ -128,6 +129,21 @@ class Requerimiento(models.Model):
         "Consecutivo de radicación",
         max_length=CONSECUTIVO_MAX_LENGTH,
         unique=True,
+        editable=False,
+    )
+
+    # --- Autoría ---
+    # Queda anulable porque los requerimientos radicados antes del ingreso con
+    # cuenta no tienen a quién apuntar. `solicitante` sigue siendo el nombre que
+    # va en el formato ADM-F-22 y se puede corregir a mano; esto es la cuenta
+    # que lo radicó, que es lo que permite decir "mis requerimientos".
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requerimientos",
+        verbose_name="Radicado por",
         editable=False,
     )
 

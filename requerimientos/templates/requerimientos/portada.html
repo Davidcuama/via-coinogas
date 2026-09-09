@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block titulo %}VIA Compras · Coinogas S.A. E.S.P.{% endblock %}
+
+{% comment %}
+  La portada reemplaza el cuerpo entero: pinta su propio fondo a pantalla
+  completa y no lleva la barra superior de la aplicación, porque quien llega
+  aquí todavía no tiene sesión.
+{% endcomment %}
+{% block cuerpo %}
+<div class="portada">
+  <div class="textura" aria-hidden="true"></div>
+  <div class="burbujas-anim" id="burbujas" aria-hidden="true"></div>
+
+  <div class="portada-caja">
+
+    <div class="cabecera-marca">
+      <div class="logo-plato">
+        <img src="{% static 'requerimientos/logo-coinogas.png' %}"
+             alt="Coinogas S.A. E.S.P." class="portada-logo">
+      </div>
+      <div class="divisor" aria-hidden="true"></div>
+      <div class="rotulo">Sistema de radicación<b>VIA Compras</b></div>
+    </div>
+
+    <h1>Radicar una compra<br>debe tomar <em>minutos</em>,<br>no correos.</h1>
+
+    <p class="lead">
+      Reemplaza el formato ADM-F-22 en Excel por un formulario conectado a una
+      base de datos central: sin transcribir dos veces, sin formatos viejos
+      circulando por correo y con trazabilidad de cada solicitud.
+    </p>
+
+    <div class="portada-acciones">
+      <a href="{% url 'ingresar' %}" class="btn btn-primary btn-lg">Ingresar al sistema</a>
+      <span class="portada-nota">Necesitas una cuenta de Coinogas para radicar.</span>
+    </div>
+
+    <div class="perfiles">
+      {% for nombre, descripcion in perfiles %}
+        <div class="p-carta">
+          <span class="glifo" aria-hidden="true">{% if forloop.first %}✎{% elif forloop.last %}⚙{% else %}▦{% endif %}</span>
+          <h3>{{ nombre }}</h3>
+          <p>{{ descripcion }}</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="portada-pie">
+      <span class="lema">Transportando bienestar</span>
+      <span>ADM-F-22 · REV. 02</span>
+      <span>COINOGAS S.A. E.S.P.</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Burbujas de gas del logotipo, subiendo despacio. Puramente decorativas:
+  // se omiten si el sistema pide menos movimiento.
+  (function () {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var cont = document.getElementById("burbujas");
+    if (!cont) return;
+    var html = "";
+    for (var i = 0; i < 16; i++) {
+      var d = 8 + Math.random() * 34;
+      var x = Math.random() * 100;
+      var dur = 14 + Math.random() * 16;
+      var ret = Math.random() * 18;
+      html += '<i style="width:' + d + "px;height:" + d * 0.44 + "px;left:" + x +
+              "%;animation-duration:" + dur + "s;animation-delay:-" + ret + 's"></i>';
+    }
+    cont.innerHTML = html;
+  })();
+</script>
+{% endblock %}

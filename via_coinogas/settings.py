@@ -83,6 +83,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                # Perfil e iniciales del usuario para la barra superior.
+                "requerimientos.context_processors.perfil",
             ],
         },
     },
@@ -146,6 +148,16 @@ TIME_ZONE = "America/Bogota"
 USE_I18N = True
 
 USE_TZ = True
+
+
+# Autenticación
+# https://docs.djangoproject.com/en/6.1/topics/auth/
+
+# Quien no ha entrado y pide una pantalla protegida va al ingreso; al salir
+# vuelve a la portada, que es pública.
+LOGIN_URL = "ingresar"
+LOGIN_REDIRECT_URL = "requerimientos:crear"
+LOGOUT_REDIRECT_URL = "portada"
 
 
 # Static files (CSS, JavaScript, Images)

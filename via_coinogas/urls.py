@@ -16,9 +16,17 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from django.contrib.auth.views import LogoutView
 from django.urls import include, path
 
+from requerimientos.views import IngresoView, PortadaView
+
 urlpatterns = [
+    # La raíz es pública: presenta el sistema a quien no ha entrado y manda a
+    # su pantalla a quien ya tiene sesión.
+    path("", PortadaView.as_view(), name="portada"),
+    path("ingresar/", IngresoView.as_view(), name="ingresar"),
+    path("salir/", LogoutView.as_view(), name="salir"),
     path("admin/", admin.site.urls),
     path("requerimientos/", include("requerimientos.urls")),
 ]

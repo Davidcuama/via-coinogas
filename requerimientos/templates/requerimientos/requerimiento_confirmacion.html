@@ -1,21 +1,23 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4" style="max-width: 720px;">
+<div class="container my-4" style="max-width: 720px;">
 
   {# HU-17: confirmación de radicación con el consecutivo (HU-16) destacado. #}
-  <div class="card border-success mb-4">
+  <div class="card mb-4">
     <div class="card-body text-center py-4">
-      <p class="text-success fw-semibold mb-1">Requerimiento radicado correctamente</p>
-      <h1 class="display-5 fw-bold mb-2" id="consecutivo">{{ requerimiento.consecutivo }}</h1>
-      <p class="text-muted mb-0">
+      <p class="text-success fw-semibold mb-3">Requerimiento radicado correctamente</p>
+      <span class="placa" id="consecutivo">{{ requerimiento.consecutivo }}</span>
+      <p class="text-muted mb-0 mt-3">
         Guarda este número: es la referencia de tu solicitud ante el área de compras.
       </p>
     </div>
   </div>
 
-  <h2 class="h5 mb-3">Resumen del requerimiento</h2>
-  <dl class="row mb-4">
+  <div class="card mb-4">
+    <div class="card-header"><h2>Resumen del requerimiento</h2></div>
+    <div class="card-body">
+  <dl class="row mb-0">
     <dt class="col-sm-4">Solicitante</dt>
     <dd class="col-sm-8">{{ requerimiento.solicitante }}</dd>
 
@@ -38,6 +40,8 @@
     <dt class="col-sm-4">Ítems radicados</dt>
     <dd class="col-sm-8" id="numero-items">{{ requerimiento.items.count }}</dd>
   </dl>
+    </div>
+  </div>
 
   {# HU-17: detalle de lo radicado, para que el solicitante verifique lo que envió. #}
   <h2 class="h5 mb-3">Ítems</h2>
