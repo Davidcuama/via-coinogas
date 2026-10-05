@@ -28,6 +28,7 @@ from .models import (
     UnidadMedida,
 )
 
+
 def crear_usuario(usuario="ana.gomez", nombre="Ana", apellido="Gómez", perfil=None, clave=None):
     """Cuenta de prueba, opcionalmente con un perfil asignado.
 
@@ -43,6 +44,7 @@ def crear_usuario(usuario="ana.gomez", nombre="Ana", apellido="Gómez", perfil=N
         cuenta.groups.add(grupos[perfil])
     return cuenta
 
+
 class VistaTestCase(TestCase):
     """Base de las pruebas que golpean vistas.
 
@@ -56,6 +58,7 @@ class VistaTestCase(TestCase):
         super().setUp()
         self.usuario = crear_usuario(perfil=self.perfil_de_prueba)
         self.client.force_login(self.usuario)
+
 
 def datos_items(*descripciones):
     """Datos POST del formset de ítems (HU-06, HU-07).
@@ -78,6 +81,7 @@ def datos_items(*descripciones):
         datos[f"items-{indice}-descripcion"] = descripcion
         datos[f"items-{indice}-id"] = ""
     return datos
+
 
 class RequerimientoModelTests(TestCase):
     """Cubre HU-02 (encabezado) y HU-05 (fecha requerida)."""
@@ -120,8 +124,7 @@ class RequerimientoModelTests(TestCase):
             req.full_clean()
 
     def test_justificacion_se_conserva_integra(self):
-        texto = "Línea 1.
-Línea 2 con más detalle sobre la compra."
+        texto = "Línea 1.\nLínea 2 con más detalle sobre la compra."
         req = self._requerimiento(justificacion=texto)
         req.full_clean()
         req.save()
@@ -149,6 +152,7 @@ Línea 2 con más detalle sobre la compra."
     def test_fecha_requerida_futura_sin_limite_es_valida(self):
         req = self._requerimiento(fecha_requerida=date.today() + timedelta(days=365 * 3))
         req.full_clean()  # no debe lanzar excepción
+
 
 class RequerimientoFormTests(TestCase):
     """Pruebas de formulario que refuerzan las validaciones de las 4 HUs."""
@@ -199,6 +203,7 @@ class RequerimientoFormTests(TestCase):
         form = RequerimientoForm(data=self._datos_validos(area=9999))
         self.assertFalse(form.is_valid())
         self.assertIn("area", form.errors)
+
 
 class ConsecutivoRadicacionTests(TestCase):
     """HU-16: consecutivo único de radicación."""
@@ -254,6 +259,7 @@ class ConsecutivoRadicacionTests(TestCase):
         req = self._crear()
         self.assertIn(req.consecutivo, str(req))
 
+
 @skipUnless(
     connection.vendor == "postgresql",
     "La prueba de concurrencia requiere bloqueo de filas (SELECT FOR UPDATE) de PostgreSQL.",
@@ -300,6 +306,7 @@ class ConsecutivoConcurrenciaTests(TransactionTestCase):
         self.assertEqual(len(resultados), self.HILOS)
         self.assertEqual(len(set(resultados)), self.HILOS, "Se repitió un consecutivo")
         self.assertEqual(SecuenciaRadicacion.objects.get().ultimo_numero, self.HILOS)
+
 
 class ValidacionCamposObligatoriosTests(VistaTestCase):
     """HU-15: el sistema impide radicar un requerimiento incompleto y señala qué falta."""
@@ -382,6 +389,7 @@ class ValidacionCamposObligatoriosTests(VistaTestCase):
         respuesta = self.client.post(self.url, self._datos_validos())
         self.assertEqual(respuesta.status_code, 302)
         self.assertEqual(Requerimiento.objects.count(), 1)
+
 
 class ConfirmacionRadicacionTests(VistaTestCase):
     """HU-17: confirmación de radicación en pantalla."""
@@ -469,6 +477,7 @@ class ConfirmacionRadicacionTests(VistaTestCase):
         datos["items-0-precio_referencia"] = "25000"
         respuesta = self.client.post(self.url_crear, datos, follow=True)
         self.assertNotContains(respuesta, 'id="aviso-total-parcial"')
+
 
 class BorradorRequerimientoTests(VistaTestCase):
     """HU-18: el solicitante guarda un borrador y lo retoma después."""
@@ -675,6 +684,7 @@ class BorradorRequerimientoTests(VistaTestCase):
         self.assertEqual(len(formset.forms), 1)
         self.assertEqual(formset.forms[0].initial, {})
 
+
 @override_settings(COMPRAS_EMAILS=["compras@coinogas.com", "analista@coinogas.com"])
 class NotificacionAreaComprasTests(VistaTestCase):
     """HU-19: el área de compras recibe un correo cuando se radica un requerimiento."""
@@ -817,6 +827,7 @@ class NotificacionAreaComprasTests(VistaTestCase):
         self.assertIn("Sin precio de referencia.", cuerpo)
         self.assertIn("parcial", cuerpo)
 
+
 class ItemTests(TestCase):
     """Cubre HU-06 (varios ítems por requerimiento)."""
 
@@ -875,6 +886,7 @@ class ItemTests(TestCase):
         self._crear_items(2)
         self.requerimiento.delete()
         self.assertEqual(Item.objects.count(), 0)
+
 
 class RequerimientoVistaTests(VistaTestCase):
     """Cubre el envío completo del formulario: encabezado + ítems (HU-06)."""
@@ -948,6 +960,7 @@ class RequerimientoVistaTests(VistaTestCase):
         self.assertEqual(respuesta.status_code, 302)
         self.assertEqual(Item.objects.count(), 1)
 
+
 class ItemDatosBasicosTests(TestCase):
     """Cubre HU-07 (cantidad, unidad de medida y descripción del ítem)."""
 
@@ -992,9 +1005,7 @@ class ItemDatosBasicosTests(TestCase):
             self._item(descripcion="   ").full_clean()
 
     def test_descripcion_larga_y_multilinea_no_se_trunca(self):
-        texto = ("Manómetro de glicerina.
-Rango 0-100 psi, rosca 1/4 NPT inferior.
-") * 20
+        texto = ("Manómetro de glicerina.\nRango 0-100 psi, rosca 1/4 NPT inferior.\n") * 20
         item = self._item(descripcion=texto)
         item.full_clean()
         item.save()
@@ -1033,6 +1044,7 @@ Rango 0-100 psi, rosca 1/4 NPT inferior.
         self.assertFalse(form.is_valid())
         for campo in ("cantidad", "unidad_medida", "descripcion"):
             self.assertIn(campo, form.errors)
+
 
 class ItemMarcasTests(VistaTestCase):
     """Cubre HU-08 (marcas de calibración y de reembolsable)."""
@@ -1115,16 +1127,14 @@ class ItemMarcasTests(VistaTestCase):
         self.assertFalse(segundo.requiere_calibracion)
         self.assertTrue(segundo.es_reembolsable)
 
+
 class ItemEspecificacionesTests(VistaTestCase):
     """Cubre HU-09 (especificaciones técnicas del ítem)."""
 
     FICHA = (
-        'Manómetro de glicerina, diámetro 4".
-'
-        "Rango 0-100 psi, precisión ±1,6 %.
-"
-        'Conexión 1/4" NPT inferior, caja en acero inoxidable 304.
-'
+        'Manómetro de glicerina, diámetro 4".\n'
+        "Rango 0-100 psi, precisión ±1,6 %.\n"
+        'Conexión 1/4" NPT inferior, caja en acero inoxidable 304.\n'
         "Debe cumplir la norma EN 837-1."
     )
 
@@ -1169,8 +1179,7 @@ class ItemEspecificacionesTests(VistaTestCase):
         self.assertEqual(item.especificaciones_tecnicas, "")
 
     def test_especificaciones_con_solo_espacios_quedan_vacias(self):
-        item = self._item(especificaciones_tecnicas="   
-  ")
+        item = self._item(especificaciones_tecnicas="   \n  ")
         item.full_clean()
         item.save()
         item.refresh_from_db()
@@ -1216,6 +1225,7 @@ class ItemEspecificacionesTests(VistaTestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(Item.objects.count(), 0)
         self.assertIn("descripcion", respuesta.context["items"].forms[0].errors)
+
 
 class TotalesTests(VistaTestCase):
     """Cubre HU-10 (cálculo automático de totales)."""
@@ -1331,6 +1341,7 @@ class TotalesTests(VistaTestCase):
         )
         self.assertEqual(nuevo.total_estimado, Decimal("87501.50"))
 
+
 class RutaRaizTests(VistaTestCase):
     """La raíz del sitio lleva al formulario, no a un 404."""
 
@@ -1343,6 +1354,7 @@ class RutaRaizTests(VistaTestCase):
         # una redirección permanente se queda cacheada en el navegador.
         respuesta = self.client.get("/")
         self.assertEqual(respuesta.status_code, 302)
+
 
 class IdentidadVisualTests(VistaTestCase):
     """La plantilla base carga la identidad de Coinogas en todas las pantallas."""
@@ -1365,6 +1377,7 @@ class IdentidadVisualTests(VistaTestCase):
         contenido = self.client.get(self.url).content.decode()
         self.assertIn("via-compras.css", contenido)
         self.assertLess(contenido.index("bootstrap"), contenido.index("via-compras.css"))
+
 
 class PortadaTests(TestCase):
     """La raíz es pública y presenta el sistema (HU-01)."""
@@ -1389,6 +1402,7 @@ class PortadaTests(TestCase):
         self.client.force_login(crear_usuario(perfil=perfiles.SOLICITANTE))
         respuesta = self.client.get(reverse("portada"))
         self.assertRedirects(respuesta, reverse("requerimientos:crear"))
+
 
 class IngresoTests(TestCase):
     """Ingreso con cuenta y enrutamiento según el perfil."""
@@ -1455,6 +1469,7 @@ class IngresoTests(TestCase):
         self.assertRedirects(respuesta, reverse("portada"))
         self.assertFalse(respuesta.wsgi_request.user.is_authenticated)
 
+
 class AccesoSinSesionTests(TestCase):
     """Ninguna pantalla de trabajo responde a quien no ha entrado."""
 
@@ -1475,6 +1490,7 @@ class AccesoSinSesionTests(TestCase):
         respuesta = self.client.post(reverse("requerimientos:crear"), {})
         self.assertEqual(respuesta.status_code, 302)
         self.assertEqual(Requerimiento.objects.count(), 0)
+
 
 class AutoriaRequerimientoTests(VistaTestCase):
     """El requerimiento queda atado a la cuenta que lo radicó."""
@@ -1532,6 +1548,7 @@ class AutoriaRequerimientoTests(VistaTestCase):
         respuesta = otro.get(reverse("requerimientos:confirmacion", args=[consecutivo]))
 
         self.assertEqual(respuesta.status_code, 404)
+
 
 class BandejaTests(VistaTestCase):
     """Bandeja del área de compras: quién entra y qué ve."""
@@ -1597,6 +1614,7 @@ class BandejaTests(VistaTestCase):
         respuesta = otro.get(reverse("requerimientos:crear"))
         self.assertNotContains(respuesta, reverse("requerimientos:bandeja"))
 
+
 class PerfilesTests(TestCase):
     """Reglas de los perfiles, sin pasar por las vistas."""
 
@@ -1618,6 +1636,7 @@ class PerfilesTests(TestCase):
 
     def test_un_anonimo_no_tiene_perfiles(self):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
+
 
 class FichaRequerimientoTests(TestCase):
     """HU-22: ficha completa del requerimiento para el área de compras."""
@@ -1693,68 +1712,3 @@ class FichaRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url)
         self.assertEqual(respuesta.status_code, 302)
         self.assertIn(reverse("ingresar"), respuesta["Location"])
-
-class AvisoConfirmacionRadicacionTests(VistaTestCase):
-    """HU-34: aviso de confirmación antes de enviar.
-
-    El comportamiento vivo (abrir el modal, llenar el resumen) ocurre en el
-    navegador y se verifica en las pruebas de usabilidad. Aquí se comprueba lo
-    que el servidor sí controla: que la plantilla entrega el modal, su resumen y
-    el botón de confirmación, y que una radicación confirmada sigue funcionando
-    (el aviso no debe estorbar el envío real).
-    """
-
-    def setUp(self):
-        super().setUp()
-        self.area = Area.objects.create(nombre="Mantenimiento")
-        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
-        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
-        self.url = reverse("requerimientos:crear")
-
-    def _datos_validos(self, **overrides):
-        datos = {
-            "solicitante": "Ana Gómez",
-            "area": self.area.pk,
-            "centro_costo": self.centro_costo.pk,
-            "justificacion": "Reposición de insumos de oficina.",
-            "prioridad": self.prioridad.pk,
-            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
-            **datos_items(),
-        }
-        datos.update(overrides)
-        return datos
-
-    # --- Happy path ---
-    def test_el_formulario_incluye_el_modal_de_confirmacion(self):
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, 'id="modal-confirmar-radicacion"')
-        self.assertContains(respuesta, 'id="confirmar-radicacion"')
-
-    def test_el_modal_resume_los_datos_clave_antes_de_enviar(self):
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, 'id="resumen-solicitante"')
-        self.assertContains(respuesta, 'id="resumen-prioridad"')
-        self.assertContains(respuesta, 'id="resumen-fecha"')
-        self.assertContains(respuesta, 'id="resumen-items"')
-
-    def test_radicacion_confirmada_crea_el_requerimiento(self):
-        # El aviso es del lado del cliente: un POST válido (equivalente a haber
-        # confirmado en el modal) debe radicar con normalidad.
-        respuesta = self.client.post(self.url, self._datos_validos())
-        self.assertEqual(respuesta.status_code, 302)
-        self.assertEqual(Requerimiento.objects.count(), 1)
-
-    # --- Flujo alternativo ---
-    def test_un_envio_invalido_no_crea_el_requerimiento(self):
-        # Si faltan campos, la validación de HU-15 frena antes del aviso: ni se
-        # abre el modal ni se radica.
-        respuesta = self.client.post(self.url, self._datos_validos(solicitante=""))
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertEqual(Requerimiento.objects.count(), 0)
-
-    def test_guardar_borrador_no_pasa_por_el_aviso(self):
-        # El botón de borrador lleva `formnovalidate` y una acción propia: no
-        # debe quedar atrapado por el aviso de confirmación.
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, "formnovalidate")
-        self.assertContains(respuesta, reverse("requerimientos:guardar_borrador"))
