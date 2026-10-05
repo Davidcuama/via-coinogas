@@ -147,7 +147,9 @@
     </div>
 
     <div class="d-flex gap-2">
-      <button type="submit" class="btn btn-primary">Radicar requerimiento</button>
+      {# HU-34: este botón no envía directo; abre el aviso de confirmación. El #}
+      {# envío real lo hace el botón del modal, para evitar radicaciones por error. #}
+      <button type="submit" class="btn btn-primary" id="radicar">Radicar requerimiento</button>
       {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
       <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
               formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
@@ -155,6 +157,44 @@
       </button>
     </div>
   </form>
+
+  {# HU-34: aviso de confirmación antes de enviar. Resume lo esencial para que #}
+  {# el solicitante confirme a conciencia; radicar es un acto con consecutivo. #}
+  <div class="modal fade" id="modal-confirmar-radicacion" tabindex="-1"
+       aria-labelledby="titulo-confirmar-radicacion" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title h5" id="titulo-confirmar-radicacion">¿Radicar este requerimiento?</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">
+            Una vez radicado se le asigna un consecutivo y se avisa al área de
+            compras. Revisa el resumen antes de confirmar:
+          </p>
+          <dl class="row mb-0">
+            <dt class="col-5">Solicitante</dt>
+            <dd class="col-7" id="resumen-solicitante">—</dd>
+            <dt class="col-5">Prioridad</dt>
+            <dd class="col-7" id="resumen-prioridad">—</dd>
+            <dt class="col-5">Fecha requerida</dt>
+            <dd class="col-7" id="resumen-fecha">—</dd>
+            <dt class="col-5">Ítems</dt>
+            <dd class="col-7" id="resumen-items">—</dd>
+          </dl>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+            Revisar de nuevo
+          </button>
+          <button type="button" class="btn btn-primary" id="confirmar-radicacion">
+            Confirmar y radicar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -178,6 +218,73 @@
         formulario.classList.add("was-validated");
       });
     }
+  });
+
+  // HU-34: aviso de confirmación antes de enviar. El botón "Radicar" no envía
+  // directo: primero valida (reutilizando la validación de HU-15), arma un
+  // resumen y abre el modal. El envío real lo dispara "Confirmar y radicar".
+  document.addEventListener("DOMContentLoaded", function () {
+    var formulario = document.querySelector("form.needs-validation");
+    var botonRadicar = document.getElementById("radicar");
+    var modalEl = document.getElementById("modal-confirmar-radicacion");
+    var botonConfirmar = document.getElementById("confirmar-radicacion");
+    if (!formulario || !botonRadicar || !modalEl || !botonConfirmar) return;
+
+    // Sin Bootstrap JS (o si algo falla), el botón se comporta como un submit
+    // normal: el modal es una salvaguarda, no un requisito para poder radicar.
+    if (!(window.bootstrap && window.bootstrap.Modal)) return;
+
+    var modal = new bootstrap.Modal(modalEl);
+    var confirmado = false;
+
+    function texto(id) {
+      var campo = document.getElementById(id);
+      if (!campo) return "—";
+      if (campo.tagName === "SELECT") {
+        var opcion = campo.options[campo.selectedIndex];
+        return opcion && opcion.value ? opcion.textContent.trim() : "—";
+      }
+      return campo.value.trim() || "—";
+    }
+
+    function contarItems() {
+      var cuerpo = document.getElementById("items-cuerpo");
+      if (!cuerpo) return 0;
+      return Array.prototype.filter.call(cuerpo.querySelectorAll(".item-fila"), function (fila) {
+        if (fila.classList.contains("d-none")) return false;
+        var cantidad = fila.querySelector(".item-cantidad");
+        var descripcion = fila.querySelector('[name$="-descripcion"]');
+        return (cantidad && cantidad.value.trim()) || (descripcion && descripcion.value.trim());
+      }).length;
+    }
+
+    formulario.addEventListener("submit", function (evento) {
+      var boton = evento.submitter;
+      // Guardar borrador (HU-18) no pasa por el aviso.
+      if (boton && boton.hasAttribute("formnovalidate")) return;
+      // Si ya confirmó en el modal, se deja pasar el envío real.
+      if (confirmado) return;
+      // Si faltan campos, la validación de HU-15 ya lo frenó; no abrimos el modal.
+      if (!formulario.checkValidity()) return;
+
+      evento.preventDefault();
+      document.getElementById("resumen-solicitante").textContent = texto("id_solicitante");
+      document.getElementById("resumen-prioridad").textContent = texto("id_prioridad");
+      document.getElementById("resumen-fecha").textContent = texto("id_fecha_requerida");
+      document.getElementById("resumen-items").textContent = contarItems();
+      modal.show();
+    });
+
+    botonConfirmar.addEventListener("click", function () {
+      confirmado = true;
+      modal.hide();
+      // requestSubmit respeta la validación y dispara el submit real.
+      if (formulario.requestSubmit) {
+        formulario.requestSubmit(botonRadicar);
+      } else {
+        formulario.submit();
+      }
+    });
   });
 
   document.addEventListener("DOMContentLoaded", function () {
