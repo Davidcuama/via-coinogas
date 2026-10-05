@@ -113,9 +113,7 @@ def notificar_confirmacion_solicitante(requerimiento):
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[correo],
     )
-    mensaje.attach_alternative(
-        render_to_string(PLANTILLA_HTML_SOLICITANTE, contexto), "text/html"
-    )
+    mensaje.attach_alternative(render_to_string(PLANTILLA_HTML_SOLICITANTE, contexto), "text/html")
 
     try:
         mensaje.send()
