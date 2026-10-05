@@ -1637,6 +1637,7 @@ class PerfilesTests(TestCase):
     def test_un_anonimo_no_tiene_perfiles(self):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
 
+
 class FichaRequerimientoTests(TestCase):
     """HU-22: ficha completa del requerimiento para el área de compras."""
 
