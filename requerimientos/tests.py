@@ -1636,3 +1636,69 @@ class PerfilesTests(TestCase):
 
     def test_un_anonimo_no_tiene_perfiles(self):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
+
+
+class AvisoConfirmacionRadicacionTests(VistaTestCase):
+    """HU-34: aviso de confirmación antes de enviar.
+
+    El comportamiento vivo (abrir el modal, llenar el resumen) ocurre en el
+    navegador y se verifica en las pruebas de usabilidad. Aquí se comprueba lo
+    que el servidor sí controla: que la plantilla entrega el modal, su resumen y
+    el botón de confirmación, y que una radicación confirmada sigue funcionando
+    (el aviso no debe estorbar el envío real).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos_validos(self, **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+        }
+        datos.update(overrides)
+        return datos
+
+    # --- Happy path ---
+    def test_el_formulario_incluye_el_modal_de_confirmacion(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'id="modal-confirmar-radicacion"')
+        self.assertContains(respuesta, 'id="confirmar-radicacion"')
+
+    def test_el_modal_resume_los_datos_clave_antes_de_enviar(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'id="resumen-solicitante"')
+        self.assertContains(respuesta, 'id="resumen-prioridad"')
+        self.assertContains(respuesta, 'id="resumen-fecha"')
+        self.assertContains(respuesta, 'id="resumen-items"')
+
+    def test_radicacion_confirmada_crea_el_requerimiento(self):
+        # El aviso es del lado del cliente: un POST válido (equivalente a haber
+        # confirmado en el modal) debe radicar con normalidad.
+        respuesta = self.client.post(self.url, self._datos_validos())
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Requerimiento.objects.count(), 1)
+
+    # --- Flujo alternativo ---
+    def test_un_envio_invalido_no_crea_el_requerimiento(self):
+        # Si faltan campos, la validación de HU-15 frena antes del aviso: ni se
+        # abre el modal ni se radica.
+        respuesta = self.client.post(self.url, self._datos_validos(solicitante=""))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+
+    def test_guardar_borrador_no_pasa_por_el_aviso(self):
+        # El botón de borrador lleva `formnovalidate` y una acción propia: no
+        # debe quedar atrapado por el aviso de confirmación.
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "formnovalidate")
+        self.assertContains(respuesta, reverse("requerimientos:guardar_borrador"))
