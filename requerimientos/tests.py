@@ -828,6 +828,112 @@ class NotificacionAreaComprasTests(VistaTestCase):
         self.assertIn("parcial", cuerpo)
 
 
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class NotificacionConfirmacionSolicitanteTests(VistaTestCase):
+    """HU-35: el solicitante recibe un correo de confirmación de su propia radicación."""
+
+    def setUp(self):
+        super().setUp()
+        self.usuario.email = "ana.gomez@coinogas.com"
+        self.usuario.save()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url_crear = reverse("requerimientos:crear")
+        self.datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+        }
+
+    def _radicar(self, datos=None):
+        """Radica y ejecuta los avisos diferidos con `transaction.on_commit`."""
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url_crear, datos or self.datos)
+
+    def _correo_solicitante(self):
+        """De los dos correos que salen al radicar (HU-19 + HU-35), el del solicitante."""
+        return next(m for m in mail.outbox if m.to == [self.usuario.email])
+
+    # --- Happy path ---
+    def test_radicar_envia_tambien_la_confirmacion_al_solicitante(self):
+        self._radicar()
+        self.assertEqual(len(mail.outbox), 2)  # compras (HU-19) + solicitante (HU-35)
+        correo = self._correo_solicitante()
+        self.assertEqual(correo.to, [self.usuario.email])
+
+    def test_el_asunto_identifica_el_requerimiento(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        self.assertIn(requerimiento.consecutivo, self._correo_solicitante().subject)
+
+    def test_el_cuerpo_resume_el_requerimiento_y_sus_items(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta"))
+        requerimiento = Requerimiento.objects.get()
+        cuerpo = self._correo_solicitante().body
+        self.assertIn(requerimiento.consecutivo, cuerpo)
+        self.assertIn("Reposición de insumos de oficina.", cuerpo)
+        self.assertIn("Resma de papel carta", cuerpo)
+
+    def test_el_correo_lleva_version_html_ademas_de_texto_plano(self):
+        self._radicar()
+        alternativas = self._correo_solicitante().alternatives
+        self.assertEqual(len(alternativas), 1)
+        self.assertEqual(alternativas[0].mimetype, "text/html")
+
+    def test_el_remitente_es_el_configurado(self):
+        self._radicar()
+        self.assertEqual(self._correo_solicitante().from_email, settings.DEFAULT_FROM_EMAIL)
+
+    def test_cada_radicacion_genera_una_sola_confirmacion(self):
+        self._radicar()
+        self._radicar()
+        correos_al_solicitante = [m for m in mail.outbox if m.to == [self.usuario.email]]
+        self.assertEqual(len(correos_al_solicitante), 2)
+
+    # --- Flujo alterno: sin correo a donde enviar ---
+    def test_cuenta_sin_correo_registrado_no_se_notifica_pero_se_radica(self):
+        self.usuario.email = ""
+        self.usuario.save()
+        with self.assertLogs("requerimientos.notificaciones", level="WARNING") as registro:
+            respuesta = self._radicar()
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertEqual(respuesta.status_code, 302)
+        # Sigue saliendo el aviso a compras (HU-19); solo falta el del solicitante.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("HU-35", registro.output[0])
+
+    def test_un_envio_incompleto_no_notifica_al_solicitante(self):
+        # HU-15 bloquea la radicación: no hay nada que confirmar.
+        respuesta = self._radicar(self.datos | {"solicitante": ""})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_una_falla_del_servidor_de_correo_no_tumba_la_radicacion(self):
+        smtp_caido = mock.patch.object(
+            EmailMultiAlternatives, "send", side_effect=smtplib.SMTPException("SMTP caído")
+        )
+        with smtp_caido, self.assertLogs("requerimientos.notificaciones", level="ERROR"):
+            respuesta = self._radicar()
+
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+
+    def test_la_confirmacion_no_depende_de_que_compras_tenga_buzones(self):
+        # HU-19 y HU-35 son independientes: sin COMPRAS_EMAILS, compras no recibe
+        # nada pero el solicitante sí recibe su confirmación.
+        with override_settings(COMPRAS_EMAILS=[]):
+            self._radicar()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.usuario.email])
+
+
 class ItemTests(TestCase):
     """Cubre HU-06 (varios ítems por requerimiento)."""
 
