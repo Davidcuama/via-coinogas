@@ -25,6 +25,7 @@ docker-compose.override.yml
 # Editores
 .vscode/
 .idea/
+.claude/
 *.swp
 .DS_Store
 Thumbs.db

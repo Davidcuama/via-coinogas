@@ -1,0 +1,28 @@
+{% autoescape off %}Tu requerimiento de compra quedó radicado.
+
+Consecutivo:        {{ requerimiento.consecutivo }}
+Prioridad:          {{ requerimiento.prioridad }}
+Solicitante:        {{ requerimiento.solicitante }}
+Área o proyecto:    {{ requerimiento.area }}
+Centro de costo:    {{ requerimiento.centro_costo }}
+Fecha de solicitud: {{ requerimiento.fecha_solicitud|date:"d/m/Y" }}
+Fecha requerida:    {{ requerimiento.fecha_requerida|date:"d/m/Y" }}
+
+Justificación:
+{{ requerimiento.justificacion }}
+
+Ítems solicitados: {{ items|length }}
+{% for item in items %}
+{{ item.numero }}. {{ item.cantidad }} {{ item.unidad_medida }} - {{ item.descripcion }}
+{% if item.precio_referencia %}   Precio unitario: {{ item.precio_referencia|floatformat:2 }} | Total: {{ item.total|floatformat:2 }}
+{% else %}   Sin precio de referencia.
+{% endif %}{% endfor %}
+Total estimado: {{ requerimiento.total_estimado|floatformat:2 }}{% if requerimiento.tiene_items_sin_precio %} (parcial: hay ítems sin precio de referencia){% endif %}
+
+Guarda este correo como respaldo de tu solicitud. Si necesitas consultar su
+estado, usa el consecutivo {{ requerimiento.consecutivo }} ante el área de compras.
+
+--
+VIA Compras - Coinogas
+Mensaje automático, no responder a este correo.
+{% endautoescape %}
