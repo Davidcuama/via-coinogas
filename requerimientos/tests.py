@@ -1636,3 +1636,78 @@ class PerfilesTests(TestCase):
 
     def test_un_anonimo_no_tiene_perfiles(self):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
+
+class FichaRequerimientoTests(TestCase):
+    """HU-22: ficha completa del requerimiento para el área de compras."""
+
+    def setUp(self):
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+
+        self.req = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Reposición de insumos de oficina.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=self.req,
+            numero=1,
+            cantidad=2,
+            unidad_medida=self.unidad,
+            descripcion="Manómetro de línea",
+            especificaciones_tecnicas="Rango 0-100 psi, norma ISO 5171.",
+            requiere_calibracion=True,
+            precio_referencia=Decimal("80000.00"),
+        )
+        self.req.renumerar_items()
+
+        self.analista = crear_usuario("compras", "Carla", "Ruiz", perfiles.ANALISTA)
+        self.url = reverse("requerimientos:ficha", args=[self.req.consecutivo])
+
+    # --- Happy path ---
+    def test_el_analista_ve_la_ficha_completa(self):
+        self.client.force_login(self.analista)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, self.req.consecutivo)
+        self.assertContains(respuesta, "Ana Gómez")
+        self.assertContains(respuesta, "CC-100")
+        self.assertContains(respuesta, "Reposición de insumos de oficina.")
+
+    def test_la_ficha_muestra_el_detalle_de_los_items(self):
+        self.client.force_login(self.analista)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "Manómetro de línea")
+        self.assertContains(respuesta, "Rango 0-100 psi")
+        self.assertContains(respuesta, "Requiere calibración")
+
+    def test_la_ficha_muestra_el_total_estimado(self):
+        self.client.force_login(self.analista)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'id="total-estimado">160000,00<')
+
+    def test_el_administrador_tambien_entra(self):
+        admin = crear_usuario("dc", "David", "Cuadros", perfiles.ADMINISTRADOR)
+        self.client.force_login(admin)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    # --- Flujo alternativo ---
+    def test_un_solicitante_no_puede_abrir_la_ficha_de_gestion(self):
+        solicitante = crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE)
+        self.client.force_login(solicitante)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_un_consecutivo_inexistente_devuelve_404(self):
+        self.client.force_login(self.analista)
+        url = reverse("requerimientos:ficha", args=["REQ-2026-9999"])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_sin_sesion_pide_ingresar(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn(reverse("ingresar"), respuesta["Location"])

@@ -17,7 +17,7 @@
       <span class="mini">{{ page_obj.paginator.count }} en total</span>
     </div>
     <div class="card-body p-0">
-      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True vacio="Todavía no hay requerimientos radicados." %}
+      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True enlazar_ficha=True vacio="Todavía no hay requerimientos radicados." %}
     </div>
   </div>
 
