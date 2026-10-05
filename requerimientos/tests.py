@@ -1726,6 +1726,7 @@ class VistasAnaliticasTests(TransactionTestCase):
         with self.assertRaises(NotImplementedError):
             fila.delete()
 
+
 class AvisoConfirmacionRadicacionTests(VistaTestCase):
     """HU-34: aviso de confirmación antes de enviar.
 
