@@ -75,5 +75,10 @@
 
 {% endblock %}
 
+{# Bundle de Bootstrap: lo usan los componentes con comportamiento (p. ej. el #}
+{# modal de confirmación de HU-34). Se carga al final para no bloquear el render. #}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+
 </body>
 </html>
