@@ -1744,6 +1744,95 @@ class PerfilesTests(TestCase):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
 
 
+class VistasAnaliticasTests(TransactionTestCase):
+    """HU-29: vistas SQL desnormalizadas de solo lectura.
+
+    Se usa TransactionTestCase porque las vistas las crea una migración con SQL
+    crudo (RunPython), y deben existir en la base de datos de prueba al consultar.
+    """
+
+    def setUp(self):
+        from .analitica import ItemAnalitico, RequerimientoAnalitico
+
+        self.RequerimientoAnalitico = RequerimientoAnalitico
+        self.ItemAnalitico = ItemAnalitico
+
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+
+        self.req = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Reposición de insumos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=self.req,
+            numero=1,
+            cantidad=4,
+            unidad_medida=self.unidad,
+            descripcion="Resma de papel",
+            precio_referencia=Decimal("25000.00"),
+        )
+        Item.objects.create(
+            requerimiento=self.req,
+            numero=2,
+            cantidad=1,
+            unidad_medida=self.unidad,
+            descripcion="Tóner",
+            precio_referencia=Decimal("150000.00"),
+        )
+
+    # --- Happy path ---
+    def test_la_vista_de_requerimientos_desnormaliza_area_prioridad_y_fechas(self):
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=self.req.consecutivo)
+        self.assertEqual(fila.area, "Mantenimiento")
+        self.assertEqual(fila.prioridad, Prioridad.ALTA)
+        self.assertEqual(fila.centro_costo_codigo, "CC-100")
+        self.assertEqual(fila.fecha_solicitud, self.req.fecha_solicitud)
+        self.assertEqual(fila.fecha_requerida, self.req.fecha_requerida)
+
+    def test_la_vista_agrega_conteo_y_total_de_items(self):
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=self.req.consecutivo)
+        self.assertEqual(fila.numero_items, 2)
+        # 4 * 25000 + 1 * 150000 = 250000
+        self.assertEqual(Decimal(fila.total_estimado), Decimal("250000.00"))
+
+    def test_la_vista_de_items_trae_consecutivo_y_unidad(self):
+        filas = self.ItemAnalitico.objects.filter(consecutivo=self.req.consecutivo).order_by(
+            "numero"
+        )
+        self.assertEqual(filas.count(), 2)
+        self.assertEqual(filas[0].unidad_medida, "Unidad")
+        self.assertEqual(filas[0].descripcion, "Resma de papel")
+
+    # --- Flujo alternativo ---
+    def test_un_requerimiento_sin_items_reporta_cero(self):
+        vacio = Requerimiento.objects.create(
+            solicitante="Luis Mesa",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Sin ítems todavía.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=vacio.consecutivo)
+        self.assertEqual(fila.numero_items, 0)
+        self.assertEqual(Decimal(fila.total_estimado), Decimal("0"))
+
+    def test_la_vista_es_de_solo_lectura(self):
+        # Escribir desde el ORM a través de la vista está prohibido por diseño.
+        fila = self.RequerimientoAnalitico.objects.first()
+        with self.assertRaises(NotImplementedError):
+            fila.save()
+        with self.assertRaises(NotImplementedError):
+            fila.delete()
+
+
 class AvisoConfirmacionRadicacionTests(VistaTestCase):
     """HU-34: aviso de confirmación antes de enviar.
 
