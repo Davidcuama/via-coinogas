@@ -11,7 +11,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView
 from . import borradores, perfiles
 from .forms import ItemFormSet, RequerimientoForm, item_formset_desde_borrador
 from .models import Requerimiento
-from .notificaciones import notificar_radicacion
+from .notificaciones import notificar_confirmacion_solicitante, notificar_radicacion
 
 
 class PortadaView(TemplateView):
@@ -152,11 +152,12 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
             items.instance = self.object
             items.save()
             self.object.renumerar_items()
-            # HU-19: el aviso al área de compras se dispara solo si la transacción
-            # llegó a confirmarse; si la radicación se deshace, no se avisa de un
+            # HU-19 + HU-35: los avisos se disparan solo si la transacción llegó a
+            # confirmarse; si la radicación se deshace, no se avisa de un
             # requerimiento que no existe.
             requerimiento = self.object
             transaction.on_commit(lambda: notificar_radicacion(requerimiento))
+            transaction.on_commit(lambda: notificar_confirmacion_solicitante(requerimiento))
 
         # HU-18: el borrador cumplió su función, el requerimiento ya quedó radicado.
         borradores.descartar(self.request.session)

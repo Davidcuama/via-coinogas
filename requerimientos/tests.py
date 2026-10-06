@@ -828,6 +828,112 @@ class NotificacionAreaComprasTests(VistaTestCase):
         self.assertIn("parcial", cuerpo)
 
 
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class NotificacionConfirmacionSolicitanteTests(VistaTestCase):
+    """HU-35: el solicitante recibe un correo de confirmación de su propia radicación."""
+
+    def setUp(self):
+        super().setUp()
+        self.usuario.email = "ana.gomez@coinogas.com"
+        self.usuario.save()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url_crear = reverse("requerimientos:crear")
+        self.datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+        }
+
+    def _radicar(self, datos=None):
+        """Radica y ejecuta los avisos diferidos con `transaction.on_commit`."""
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url_crear, datos or self.datos)
+
+    def _correo_solicitante(self):
+        """De los dos correos que salen al radicar (HU-19 + HU-35), el del solicitante."""
+        return next(m for m in mail.outbox if m.to == [self.usuario.email])
+
+    # --- Happy path ---
+    def test_radicar_envia_tambien_la_confirmacion_al_solicitante(self):
+        self._radicar()
+        self.assertEqual(len(mail.outbox), 2)  # compras (HU-19) + solicitante (HU-35)
+        correo = self._correo_solicitante()
+        self.assertEqual(correo.to, [self.usuario.email])
+
+    def test_el_asunto_identifica_el_requerimiento(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        self.assertIn(requerimiento.consecutivo, self._correo_solicitante().subject)
+
+    def test_el_cuerpo_resume_el_requerimiento_y_sus_items(self):
+        self._radicar(self.datos | datos_items("Resma de papel carta"))
+        requerimiento = Requerimiento.objects.get()
+        cuerpo = self._correo_solicitante().body
+        self.assertIn(requerimiento.consecutivo, cuerpo)
+        self.assertIn("Reposición de insumos de oficina.", cuerpo)
+        self.assertIn("Resma de papel carta", cuerpo)
+
+    def test_el_correo_lleva_version_html_ademas_de_texto_plano(self):
+        self._radicar()
+        alternativas = self._correo_solicitante().alternatives
+        self.assertEqual(len(alternativas), 1)
+        self.assertEqual(alternativas[0].mimetype, "text/html")
+
+    def test_el_remitente_es_el_configurado(self):
+        self._radicar()
+        self.assertEqual(self._correo_solicitante().from_email, settings.DEFAULT_FROM_EMAIL)
+
+    def test_cada_radicacion_genera_una_sola_confirmacion(self):
+        self._radicar()
+        self._radicar()
+        correos_al_solicitante = [m for m in mail.outbox if m.to == [self.usuario.email]]
+        self.assertEqual(len(correos_al_solicitante), 2)
+
+    # --- Flujo alterno: sin correo a donde enviar ---
+    def test_cuenta_sin_correo_registrado_no_se_notifica_pero_se_radica(self):
+        self.usuario.email = ""
+        self.usuario.save()
+        with self.assertLogs("requerimientos.notificaciones", level="WARNING") as registro:
+            respuesta = self._radicar()
+        self.assertEqual(Requerimiento.objects.count(), 1)
+        self.assertEqual(respuesta.status_code, 302)
+        # Sigue saliendo el aviso a compras (HU-19); solo falta el del solicitante.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("HU-35", registro.output[0])
+
+    def test_un_envio_incompleto_no_notifica_al_solicitante(self):
+        # HU-15 bloquea la radicación: no hay nada que confirmar.
+        respuesta = self._radicar(self.datos | {"solicitante": ""})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_una_falla_del_servidor_de_correo_no_tumba_la_radicacion(self):
+        smtp_caido = mock.patch.object(
+            EmailMultiAlternatives, "send", side_effect=smtplib.SMTPException("SMTP caído")
+        )
+        with smtp_caido, self.assertLogs("requerimientos.notificaciones", level="ERROR"):
+            respuesta = self._radicar()
+
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+
+    def test_la_confirmacion_no_depende_de_que_compras_tenga_buzones(self):
+        # HU-19 y HU-35 son independientes: sin COMPRAS_EMAILS, compras no recibe
+        # nada pero el solicitante sí recibe su confirmación.
+        with override_settings(COMPRAS_EMAILS=[]):
+            self._radicar()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.usuario.email])
+
+
 class ItemTests(TestCase):
     """Cubre HU-06 (varios ítems por requerimiento)."""
 
@@ -1636,6 +1742,161 @@ class PerfilesTests(TestCase):
 
     def test_un_anonimo_no_tiene_perfiles(self):
         self.assertEqual(perfiles.perfiles_de(AnonymousUser()), set())
+
+
+class VistasAnaliticasTests(TransactionTestCase):
+    """HU-29: vistas SQL desnormalizadas de solo lectura.
+
+    Se usa TransactionTestCase porque las vistas las crea una migración con SQL
+    crudo (RunPython), y deben existir en la base de datos de prueba al consultar.
+    """
+
+    def setUp(self):
+        from .analitica import ItemAnalitico, RequerimientoAnalitico
+
+        self.RequerimientoAnalitico = RequerimientoAnalitico
+        self.ItemAnalitico = ItemAnalitico
+
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+
+        self.req = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Reposición de insumos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=self.req,
+            numero=1,
+            cantidad=4,
+            unidad_medida=self.unidad,
+            descripcion="Resma de papel",
+            precio_referencia=Decimal("25000.00"),
+        )
+        Item.objects.create(
+            requerimiento=self.req,
+            numero=2,
+            cantidad=1,
+            unidad_medida=self.unidad,
+            descripcion="Tóner",
+            precio_referencia=Decimal("150000.00"),
+        )
+
+    # --- Happy path ---
+    def test_la_vista_de_requerimientos_desnormaliza_area_prioridad_y_fechas(self):
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=self.req.consecutivo)
+        self.assertEqual(fila.area, "Mantenimiento")
+        self.assertEqual(fila.prioridad, Prioridad.ALTA)
+        self.assertEqual(fila.centro_costo_codigo, "CC-100")
+        self.assertEqual(fila.fecha_solicitud, self.req.fecha_solicitud)
+        self.assertEqual(fila.fecha_requerida, self.req.fecha_requerida)
+
+    def test_la_vista_agrega_conteo_y_total_de_items(self):
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=self.req.consecutivo)
+        self.assertEqual(fila.numero_items, 2)
+        # 4 * 25000 + 1 * 150000 = 250000
+        self.assertEqual(Decimal(fila.total_estimado), Decimal("250000.00"))
+
+    def test_la_vista_de_items_trae_consecutivo_y_unidad(self):
+        filas = self.ItemAnalitico.objects.filter(consecutivo=self.req.consecutivo).order_by(
+            "numero"
+        )
+        self.assertEqual(filas.count(), 2)
+        self.assertEqual(filas[0].unidad_medida, "Unidad")
+        self.assertEqual(filas[0].descripcion, "Resma de papel")
+
+    # --- Flujo alternativo ---
+    def test_un_requerimiento_sin_items_reporta_cero(self):
+        vacio = Requerimiento.objects.create(
+            solicitante="Luis Mesa",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Sin ítems todavía.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+        fila = self.RequerimientoAnalitico.objects.get(consecutivo=vacio.consecutivo)
+        self.assertEqual(fila.numero_items, 0)
+        self.assertEqual(Decimal(fila.total_estimado), Decimal("0"))
+
+    def test_la_vista_es_de_solo_lectura(self):
+        # Escribir desde el ORM a través de la vista está prohibido por diseño.
+        fila = self.RequerimientoAnalitico.objects.first()
+        with self.assertRaises(NotImplementedError):
+            fila.save()
+        with self.assertRaises(NotImplementedError):
+            fila.delete()
+
+
+class AvisoConfirmacionRadicacionTests(VistaTestCase):
+    """HU-34: aviso de confirmación antes de enviar.
+
+    El comportamiento vivo (abrir el modal, llenar el resumen) ocurre en el
+    navegador y se verifica en las pruebas de usabilidad. Aquí se comprueba lo
+    que el servidor sí controla: que la plantilla entrega el modal, su resumen y
+    el botón de confirmación, y que una radicación confirmada sigue funcionando
+    (el aviso no debe estorbar el envío real).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos_validos(self, **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de insumos de oficina.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+        }
+        datos.update(overrides)
+        return datos
+
+    # --- Happy path ---
+    def test_el_formulario_incluye_el_modal_de_confirmacion(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'id="modal-confirmar-radicacion"')
+        self.assertContains(respuesta, 'id="confirmar-radicacion"')
+
+    def test_el_modal_resume_los_datos_clave_antes_de_enviar(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'id="resumen-solicitante"')
+        self.assertContains(respuesta, 'id="resumen-prioridad"')
+        self.assertContains(respuesta, 'id="resumen-fecha"')
+        self.assertContains(respuesta, 'id="resumen-items"')
+
+    def test_radicacion_confirmada_crea_el_requerimiento(self):
+        # El aviso es del lado del cliente: un POST válido (equivalente a haber
+        # confirmado en el modal) debe radicar con normalidad.
+        respuesta = self.client.post(self.url, self._datos_validos())
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Requerimiento.objects.count(), 1)
+
+    # --- Flujo alternativo ---
+    def test_un_envio_invalido_no_crea_el_requerimiento(self):
+        # Si faltan campos, la validación de HU-15 frena antes del aviso: ni se
+        # abre el modal ni se radica.
+        respuesta = self.client.post(self.url, self._datos_validos(solicitante=""))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+
+    def test_guardar_borrador_no_pasa_por_el_aviso(self):
+        # El botón de borrador lleva `formnovalidate` y una acción propia: no
+        # debe quedar atrapado por el aviso de confirmación.
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "formnovalidate")
+        self.assertContains(respuesta, reverse("requerimientos:guardar_borrador"))
 
 
 class FichaRequerimientoTests(TestCase):
