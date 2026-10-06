@@ -21,8 +21,13 @@
       {% for requerimiento in requerimientos %}
         <tr>
           <td>
-            <a href="{% url 'requerimientos:confirmacion' requerimiento.consecutivo %}"
-               class="placa clara">{{ requerimiento.consecutivo }}</a>
+            {% if enlazar_ficha %}
+              <a href="{% url 'requerimientos:ficha' requerimiento.consecutivo %}"
+                 class="placa clara">{{ requerimiento.consecutivo }}</a>
+            {% else %}
+              <a href="{% url 'requerimientos:confirmacion' requerimiento.consecutivo %}"
+                 class="placa clara">{{ requerimiento.consecutivo }}</a>
+            {% endif %}
           </td>
           <td class="dato">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</td>
           {% if mostrar_solicitante %}<td>{{ requerimiento.solicitante }}</td>{% endif %}

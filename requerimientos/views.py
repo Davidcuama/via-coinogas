@@ -203,6 +203,25 @@ class RequerimientoConfirmacionView(LoginRequiredMixin, DetailView):
         return consulta.filter(creado_por=usuario)
 
 
+class FichaRequerimientoView(PerfilRequeridoMixin, DetailView):
+    """Ficha completa del requerimiento para el area de compras (HU-22)."""
+
+    model = Requerimiento
+    template_name = "requerimientos/requerimiento_ficha.html"
+    context_object_name = "requerimiento"
+    slug_field = "consecutivo"
+    slug_url_kwarg = "consecutivo"
+    perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related("area", "centro_costo", "prioridad", "creado_por")
+            .prefetch_related("items__unidad_medida")
+        )
+
+
 class GuardarBorradorView(LoginRequiredMixin, View):
     """Guarda el borrador del formulario (HU-18).
 
