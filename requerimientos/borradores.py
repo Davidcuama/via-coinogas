@@ -16,13 +16,14 @@ validarlos, y se descarta en cuanto el requerimiento queda radicado.
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .forms import ItemFormSet, RequerimientoForm
+from .forms import CAMPOS_PROVEEDORES_FORM, ItemFormSet, RequerimientoForm
 
 # Clave bajo la que vive el borrador dentro de la sesión.
 CLAVE_SESION = "borrador_requerimiento"
 
-# Campos que se conservan: los mismos que expone el formulario de radicación.
-CAMPOS_BORRADOR = tuple(RequerimientoForm.Meta.fields)
+# Campos que se conservan: los mismos que expone el formulario de radicación,
+# más los proveedores sugeridos (HU-13), que viajan en el mismo envío.
+CAMPOS_BORRADOR = (*RequerimientoForm.Meta.fields, *CAMPOS_PROVEEDORES_FORM)
 
 # `prioridad` llega siempre con el valor por defecto (Media, HU-04), de modo que
 # no es información que el solicitante haya diligenciado: no cuenta para decidir

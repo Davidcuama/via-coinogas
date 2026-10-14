@@ -30,6 +30,7 @@ from .models import (
     CentroCosto,
     Item,
     Prioridad,
+    ProveedorSugerido,
     Requerimiento,
     SecuenciaRadicacion,
     UnidadMedida,
@@ -2589,3 +2590,148 @@ class FiltrosBandejaTests(VistaTestCase):
         otro = Client()
         otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
         self.assertEqual(otro.get(self.url, {"area": self.logistica.pk}).status_code, 403)
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class ProveedoresSugeridosTests(VistaTestCase):
+    """HU-13: el solicitante sugiere hasta tres proveedores con su teléfono.
+
+    Caso de prueba CP-S2-06 de la Wiki.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.usuario.email = "ana.gomez@coinogas.com"
+        self.usuario.save()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, **proveedores):
+        return {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro.pk,
+            "justificacion": "Reposición de repuestos de la línea 2.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+            **proveedores,
+        }
+
+    def _radicar(self, **proveedores):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, self._datos(**proveedores))
+
+    # --- Happy path ---
+
+    def test_el_formulario_ofrece_tres_filas_de_proveedor(self):
+        respuesta = self.client.get(self.url)
+        for posicion in (1, 2, 3):
+            self.assertContains(respuesta, f'name="proveedor_{posicion}_telefono"')
+        self.assertNotContains(respuesta, 'name="proveedor_4_nombre"')
+
+    def test_radicar_guarda_los_proveedores_con_su_telefono(self):
+        respuesta = self._radicar(
+            proveedor_1_nombre="Ferretería El Tornillo",
+            proveedor_1_telefono="604 444 1234",
+            proveedor_1_observaciones="Preguntar por Marta",
+            proveedor_2_nombre="Hidráulicos del Valle",
+            proveedor_2_telefono="+57 300 123 4567",
+        )
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+        proveedores = list(requerimiento.proveedores_sugeridos.values_list("orden", "nombre"))
+        self.assertEqual(proveedores, [(1, "Ferretería El Tornillo"), (2, "Hidráulicos del Valle")])
+        self.assertEqual(
+            requerimiento.proveedores_sugeridos.get(orden=1).observaciones, "Preguntar por Marta"
+        )
+
+    def test_sugerir_proveedores_es_opcional(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        self.assertFalse(requerimiento.proveedores_sugeridos.exists())
+
+    def test_las_filas_se_compactan_si_se_salta_una(self):
+        self._radicar(proveedor_3_nombre="Solo en la tercera", proveedor_3_telefono="3001234567")
+        proveedor = ProveedorSugerido.objects.get()
+        self.assertEqual(proveedor.orden, 1)
+
+    def test_la_ficha_de_compras_muestra_los_proveedores(self):
+        self._radicar(
+            proveedor_1_nombre="Ferretería El Tornillo", proveedor_1_telefono="6044441234"
+        )
+        analista = Client()
+        analista.force_login(crear_usuario("compras", "Carla", "Ruiz", perfiles.ANALISTA))
+        consecutivo = Requerimiento.objects.get().consecutivo
+        respuesta = analista.get(reverse("requerimientos:ficha", args=[consecutivo]))
+        self.assertContains(respuesta, "Ferretería El Tornillo")
+        self.assertContains(respuesta, 'href="tel:6044441234"')
+
+    def test_el_correo_a_compras_incluye_los_proveedores(self):
+        self._radicar(
+            proveedor_1_nombre="Ferretería El Tornillo", proveedor_1_telefono="6044441234"
+        )
+        aviso = next(m for m in mail.outbox if "compras@coinogas.com" in m.to)
+        self.assertIn("Ferretería El Tornillo - Tel. 6044441234", aviso.body)
+
+    def test_el_borrador_conserva_los_proveedores(self):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "proveedor_1_nombre": "Ferretería El Tornillo",
+            "proveedor_1_telefono": "6044441234",
+        }
+        self.client.post(reverse("requerimientos:guardar_borrador"), datos)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'value="Ferretería El Tornillo"')
+
+    # --- Flujo alterno: datos incompletos o inválidos ---
+
+    def test_un_proveedor_sin_telefono_bloquea_la_radicacion(self):
+        respuesta = self._radicar(proveedor_1_nombre="Ferretería El Tornillo")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Requerimiento.objects.exists())
+        self.assertContains(respuesta, "Sin teléfono, compras no puede pedir la cotización.")
+        self.assertContains(respuesta, "Proveedores sugeridos</li>")
+
+    def test_un_telefono_sin_nombre_bloquea_la_radicacion(self):
+        respuesta = self._radicar(proveedor_2_telefono="6044441234")
+        self.assertFalse(Requerimiento.objects.exists())
+        self.assertContains(respuesta, "Escribe el nombre del proveedor")
+
+    def test_un_telefono_con_letras_o_muy_corto_es_invalido(self):
+        for telefono in ("llamar a Marta", "12345", "1" * 16):
+            with self.subTest(telefono=telefono):
+                respuesta = self._radicar(
+                    proveedor_1_nombre="Ferretería El Tornillo", proveedor_1_telefono=telefono
+                )
+                self.assertContains(respuesta, "Escribe un teléfono válido")
+        self.assertFalse(Requerimiento.objects.exists())
+
+    def test_un_error_en_proveedores_conserva_lo_diligenciado(self):
+        respuesta = self._radicar(proveedor_1_nombre="Ferretería El Tornillo")
+        self.assertContains(respuesta, 'value="Ferretería El Tornillo"')
+        self.assertContains(respuesta, "Reposición de repuestos de la línea 2.")
+
+    def test_no_se_aceptan_mas_de_tres_proveedores(self):
+        self._radicar(proveedor_4_nombre="Cuarto proveedor", proveedor_4_telefono="6044441234")
+        requerimiento = Requerimiento.objects.get()
+        self.assertFalse(requerimiento.proveedores_sugeridos.exists())
+
+    def test_el_modelo_no_admite_una_posicion_fuera_de_rango(self):
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Prueba.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+        proveedor = ProveedorSugerido(
+            requerimiento=requerimiento, orden=4, nombre="X", telefono="6044441234"
+        )
+        with self.assertRaises(ValidationError):
+            proveedor.full_clean()

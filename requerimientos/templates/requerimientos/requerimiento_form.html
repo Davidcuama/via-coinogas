@@ -9,13 +9,14 @@
     <p class="sub">Todos los campos son obligatorios.</p>
   </div>
 
-  {% if form.errors %}
+  {% if form.errors or proveedores.errors %}
     <div class="alert alert-danger" role="alert" id="resumen-errores">
       <strong>No se pudo radicar el requerimiento.</strong>
       Revisa los campos marcados:
       <ul class="mb-0">
         {% for etiqueta in form.campos_con_error %}<li>{{ etiqueta }}</li>{% endfor %}
         {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        {% if proveedores.errors %}<li>Proveedores sugeridos</li>{% endif %}
       </ul>
     </div>
   {% endif %}
@@ -143,6 +144,52 @@
       + Agregar ítem
     </button>
 
+      </div>
+    </div>
+
+    {# HU-13: hasta tres proveedores sugeridos, como texto libre. Es opcional, #}
+    {# pero una fila empezada debe quedar con nombre y teléfono. #}
+    <div class="card mb-4" id="proveedores-sugeridos">
+      <div class="card-header">
+        <h2>Proveedores sugeridos</h2>
+        <span class="mini">Opcional · hasta 3</span>
+      </div>
+      <div class="card-body">
+        <p class="form-text mt-0">
+          Si conoces dónde conseguirlo, deja el nombre y el teléfono: el área de
+          compras los valida al pedir la cotización.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" id="tabla-proveedores">
+            <thead>
+              <tr>
+                <th style="width: 3rem;" class="text-center">N.º</th>
+                <th>Nombre o razón social</th>
+                <th style="width: 14rem;">Teléfono</th>
+                <th>Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fila in proveedores.filas %}
+                <tr>
+                  <td class="text-center">{{ fila.posicion }}</td>
+                  <td>
+                    {{ fila.nombre }}
+                    {% for error in fila.nombre.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                  </td>
+                  <td>
+                    {{ fila.telefono }}
+                    {% for error in fila.telefono.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                  </td>
+                  <td>
+                    {{ fila.observaciones }}
+                    {% for error in fila.observaciones.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 

@@ -13,6 +13,7 @@ from . import borradores, perfiles
 from .forms import (
     FiltroBandejaForm,
     ItemFormSet,
+    ProveedoresSugeridosForm,
     RequerimientoForm,
     item_formset_desde_borrador,
 )
@@ -192,14 +193,27 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
                 contexto["items"] = item_formset_desde_borrador(
                     borradores.items(self.request.session)
                 )
+        # HU-13: proveedores sugeridos, también en el mismo POST.
+        if "proveedores" not in contexto:
+            if self.request.method == "POST":
+                contexto["proveedores"] = ProveedoresSugeridosForm(self.request.POST)
+            else:
+                contexto["proveedores"] = ProveedoresSugeridosForm(
+                    initial=borradores.valores(self.request.session)
+                )
         return contexto
 
     def form_valid(self, form):
         # HU-06: un encabezado válido todavía no basta; si los ítems no lo son,
         # se devuelve el formulario completo sin tocar la base de datos.
         items = ItemFormSet(self.request.POST)
-        if not items.is_valid():
-            return self.form_invalid(form, items)
+        proveedores = ProveedoresSugeridosForm(self.request.POST)
+        # Se validan ambos antes de decidir, para mostrar todos los errores de
+        # una vez y no uno por cada intento de radicar.
+        items_validos = items.is_valid()
+        proveedores_validos = proveedores.is_valid()
+        if not (items_validos and proveedores_validos):
+            return self.form_invalid(form, items, proveedores)
 
         form.instance.creado_por = self.request.user
 
@@ -209,6 +223,8 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
             items.instance = self.object
             items.save()
             self.object.renumerar_items()
+            # HU-13: los proveedores sugeridos entran en la misma transacción.
+            proveedores.guardar(self.object)
             # HU-19 + HU-35: los avisos se disparan solo si la transacción llegó a
             # confirmarse; si la radicación se deshace, no se avisa de un
             # requerimiento que no existe.
@@ -220,12 +236,17 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
         borradores.descartar(self.request.session)
         return respuesta
 
-    def form_invalid(self, form, items=None):
+    def form_invalid(self, form, items=None, proveedores=None):
         # HU-06: el formset se conserva tal como lo envió el usuario para que no
-        # pierda las filas que ya había diligenciado.
+        # pierda las filas que ya había diligenciado. Igual los proveedores (HU-13).
         if items is None:
             items = ItemFormSet(self.request.POST)
-        return self.render_to_response(self.get_context_data(form=form, items=items))
+        if proveedores is None:
+            proveedores = ProveedoresSugeridosForm(self.request.POST)
+            proveedores.is_valid()
+        return self.render_to_response(
+            self.get_context_data(form=form, items=items, proveedores=proveedores)
+        )
 
     def get_success_url(self):
         # HU-17: patrón Post/Redirect/Get. Tras radicar se redirige a la pantalla
@@ -275,7 +296,7 @@ class FichaRequerimientoView(PerfilRequeridoMixin, DetailView):
             super()
             .get_queryset()
             .select_related("area", "centro_costo", "prioridad", "creado_por")
-            .prefetch_related("items__unidad_medida")
+            .prefetch_related("items__unidad_medida", "proveedores_sugeridos")
         )
 
 

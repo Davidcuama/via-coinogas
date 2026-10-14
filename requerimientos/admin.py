@@ -5,6 +5,7 @@ from .models import (
     CentroCosto,
     Item,
     Prioridad,
+    ProveedorSugerido,
     Requerimiento,
     SecuenciaRadicacion,
     UnidadMedida,
@@ -60,6 +61,15 @@ class ItemInline(admin.TabularInline):
     readonly_fields = ("total",)
 
 
+class ProveedorSugeridoInline(admin.TabularInline):
+    """Proveedores que sugirió el solicitante (HU-13)."""
+
+    model = ProveedorSugerido
+    extra = 0
+    max_num = 3
+    fields = ("orden", "nombre", "telefono", "observaciones")
+
+
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
@@ -76,4 +86,4 @@ class RequerimientoAdmin(admin.ModelAdmin):
     search_fields = ("consecutivo", "solicitante", "justificacion")
     date_hierarchy = "fecha_solicitud"
     readonly_fields = ("consecutivo", "fecha_solicitud")
-    inlines = [ItemInline]
+    inlines = [ItemInline, ProveedorSugeridoInline]

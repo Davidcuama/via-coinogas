@@ -1,11 +1,15 @@
+import re
+
 from django import forms
 from django.utils import timezone
 
 from .models import (
     JUSTIFICACION_MAX_LENGTH,
+    MAX_PROVEEDORES_SUGERIDOS,
     Area,
     Item,
     Prioridad,
+    ProveedorSugerido,
     Requerimiento,
     UnidadMedida,
 )
@@ -269,6 +273,148 @@ def item_formset_desde_borrador(filas):
     if not filas:
         return ItemFormSet()
     return _fabrica_item_formset(extra=len(filas) - 1)(initial=filas)
+
+
+# HU-13: un teléfono colombiano real tiene entre 7 dígitos (fijo local) y 12
+# (celular con indicativo +57); se deja margen hasta 15 por si el proveedor es
+# extranjero. Se aceptan los separadores con que la gente lo escribe.
+TELEFONO_CARACTERES_VALIDOS = re.compile(r"^[0-9+()\-\s.]+$")
+TELEFONO_MIN_DIGITOS = 7
+TELEFONO_MAX_DIGITOS = 15
+
+CAMPOS_PROVEEDOR = ("nombre", "telefono", "observaciones")
+
+
+def _campo_proveedor(posicion, campo):
+    """Nombre del campo del formulario para el proveedor en esa posición."""
+    return f"proveedor_{posicion}_{campo}"
+
+
+class ProveedoresSugeridosForm(forms.Form):
+    """Hasta tres proveedores sugeridos por el solicitante (HU-13).
+
+    Se usa un formulario de posiciones fijas y no un formset porque son como
+    mucho tres filas siempre visibles, igual que en el formato ADM-F-22. Todo
+    es opcional; pero una fila que se empieza a llenar debe quedar completa
+    (nombre y teléfono), porque un proveedor sin teléfono no le sirve a compras
+    para pedir la cotización.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for posicion in range(1, MAX_PROVEEDORES_SUGERIDOS + 1):
+            self.fields[_campo_proveedor(posicion, "nombre")] = forms.CharField(
+                label=f"Proveedor {posicion}: nombre",
+                max_length=ProveedorSugerido._meta.get_field("nombre").max_length,
+                required=False,
+                widget=forms.TextInput(
+                    attrs={"class": "form-control", "placeholder": "Nombre o razón social"}
+                ),
+            )
+            self.fields[_campo_proveedor(posicion, "telefono")] = forms.CharField(
+                label=f"Proveedor {posicion}: teléfono",
+                max_length=ProveedorSugerido._meta.get_field("telefono").max_length,
+                required=False,
+                widget=forms.TextInput(
+                    attrs={
+                        "class": "form-control",
+                        "type": "tel",
+                        "inputmode": "tel",
+                        "placeholder": "Ej. 604 444 1234 o 300 123 4567",
+                    }
+                ),
+            )
+            self.fields[_campo_proveedor(posicion, "observaciones")] = forms.CharField(
+                label=f"Proveedor {posicion}: observaciones",
+                max_length=ProveedorSugerido._meta.get_field("observaciones").max_length,
+                required=False,
+                widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Opcional"}),
+            )
+
+    def full_clean(self):
+        # Igual que el encabezado (HU-15): los campos con error se resaltan.
+        super().full_clean()
+        if not self.is_bound:
+            return
+        for nombre in self.errors:
+            if nombre in self.fields:
+                attrs = self.fields[nombre].widget.attrs
+                attrs["class"] = f"{attrs.get('class', '')} is-invalid".strip()
+
+    def filas(self):
+        """Campos agrupados por posición, para pintarlos como una tabla."""
+        return [
+            {
+                "posicion": posicion,
+                **{campo: self[_campo_proveedor(posicion, campo)] for campo in CAMPOS_PROVEEDOR},
+            }
+            for posicion in range(1, MAX_PROVEEDORES_SUGERIDOS + 1)
+        ]
+
+    def clean(self):
+        datos = super().clean()
+        for posicion in range(1, MAX_PROVEEDORES_SUGERIDOS + 1):
+            valores = {
+                campo: (datos.get(_campo_proveedor(posicion, campo)) or "").strip()
+                for campo in CAMPOS_PROVEEDOR
+            }
+            if not any(valores.values()):
+                continue
+            if not valores["nombre"]:
+                self.add_error(
+                    _campo_proveedor(posicion, "nombre"),
+                    "Escribe el nombre del proveedor o deja la fila vacía.",
+                )
+            if not valores["telefono"]:
+                self.add_error(
+                    _campo_proveedor(posicion, "telefono"),
+                    "Sin teléfono, compras no puede pedir la cotización.",
+                )
+            elif not self._telefono_valido(valores["telefono"]):
+                self.add_error(
+                    _campo_proveedor(posicion, "telefono"),
+                    "Escribe un teléfono válido: solo números, espacios, +, - o paréntesis, "
+                    f"entre {TELEFONO_MIN_DIGITOS} y {TELEFONO_MAX_DIGITOS} dígitos.",
+                )
+        return datos
+
+    @staticmethod
+    def _telefono_valido(telefono):
+        if not TELEFONO_CARACTERES_VALIDOS.match(telefono):
+            return False
+        digitos = sum(caracter.isdigit() for caracter in telefono)
+        return TELEFONO_MIN_DIGITOS <= digitos <= TELEFONO_MAX_DIGITOS
+
+    def proveedores(self):
+        """Proveedores diligenciados, en orden y sin filas vacías.
+
+        Las filas se compactan: si el solicitante llenó la 1 y la 3, quedan
+        guardados como 1 y 2, igual que la numeración de los ítems (HU-06).
+        """
+        resultado = []
+        for posicion in range(1, MAX_PROVEEDORES_SUGERIDOS + 1):
+            valores = {
+                campo: (self.cleaned_data.get(_campo_proveedor(posicion, campo)) or "").strip()
+                for campo in CAMPOS_PROVEEDOR
+            }
+            if any(valores.values()):
+                resultado.append(valores)
+        return resultado
+
+    def guardar(self, requerimiento):
+        """Crea los proveedores sugeridos del requerimiento recién radicado."""
+        ProveedorSugerido.objects.bulk_create(
+            ProveedorSugerido(requerimiento=requerimiento, orden=orden, **valores)
+            for orden, valores in enumerate(self.proveedores(), start=1)
+        )
+
+
+# Nombres de todos los campos de proveedores, para el borrador (HU-18).
+CAMPOS_PROVEEDORES_FORM = tuple(
+    _campo_proveedor(posicion, campo)
+    for posicion in range(1, MAX_PROVEEDORES_SUGERIDOS + 1)
+    for campo in CAMPOS_PROVEEDOR
+)
 
 
 # HU-21: criterios de ordenamiento de la bandeja. La llave es lo que viaja en la
