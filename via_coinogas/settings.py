@@ -166,6 +166,16 @@ LOGOUT_REDIRECT_URL = "portada"
 STATIC_URL = "static/"
 
 
+# Archivos subidos por los usuarios (HU-11: adjuntos del requerimiento)
+# https://docs.djangoproject.com/en/6.1/topics/files/
+
+# Fuera del control de versiones (ver .gitignore). No se publican con una ruta
+# estática: cada adjunto se entrega por una vista que revisa que quien lo pide
+# tenga derecho a verlo, porque el consecutivo que va en la ruta es adivinable.
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+MEDIA_URL = "media/"
+
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.1/ref/settings/#default-auto-field
 

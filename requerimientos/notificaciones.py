@@ -1,4 +1,4 @@
-"""Notificaciones por correo de la radicación (HU-19, HU-35).
+"""Notificaciones por correo de la radicación (HU-19, HU-35) y la devolución (HU-24).
 
 El área de compras y el propio solicitante se enteran de que hay un requerimiento
 nuevo por correo, sin tener que entrar a revisar el sistema. Los avisos salen una
@@ -28,6 +28,15 @@ PLANTILLA_HTML = "requerimientos/email/radicacion.html"
 ASUNTO_SOLICITANTE = "[VIA Compras] Confirmación de tu requerimiento {consecutivo}"
 PLANTILLA_TEXTO_SOLICITANTE = "requerimientos/email/confirmacion_solicitante.txt"
 PLANTILLA_HTML_SOLICITANTE = "requerimientos/email/confirmacion_solicitante.html"
+
+# HU-24: devolución al solicitante y reenvío a compras.
+ASUNTO_DEVOLUCION = "[VIA Compras] Tu requerimiento {consecutivo} necesita correcciones"
+PLANTILLA_TEXTO_DEVOLUCION = "requerimientos/email/devolucion.txt"
+PLANTILLA_HTML_DEVOLUCION = "requerimientos/email/devolucion.html"
+
+ASUNTO_REENVIO = "[VIA Compras] {consecutivo} corregido y reenviado"
+PLANTILLA_TEXTO_REENVIO = "requerimientos/email/reenvio.txt"
+PLANTILLA_HTML_REENVIO = "requerimientos/email/reenvio.html"
 
 
 def destinatarios():
@@ -125,3 +134,79 @@ def notificar_confirmacion_solicitante(requerimiento):
         )
         return False
     return True
+
+
+def _enviar(asunto, plantilla_texto, plantilla_html, contexto, para, historia):
+    """Arma y envía un correo con versión de texto y HTML.
+
+    Devuelve ``True`` si salió. Si el servidor de correo falla se registra y
+    devuelve ``False``: el cambio que lo disparó ya quedó guardado y no se
+    deshace por un aviso.
+    """
+    mensaje = EmailMultiAlternatives(
+        subject=asunto,
+        body=render_to_string(plantilla_texto, contexto),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=para,
+    )
+    mensaje.attach_alternative(render_to_string(plantilla_html, contexto), "text/html")
+    try:
+        mensaje.send()
+    except (OSError, smtplib.SMTPException):
+        logger.exception(
+            "%s: no se pudo enviar el aviso de %s.",
+            historia,
+            contexto["requerimiento"].consecutivo,
+        )
+        return False
+    return True
+
+
+def notificar_devolucion(requerimiento, cambio, enlace_correccion):
+    """Avisa al solicitante que su requerimiento fue devuelto y por qué (HU-24).
+
+    Va a la cuenta que radicó, igual que la confirmación de HU-35, y lleva la
+    observación del analista y el enlace directo para corregir: la idea es que
+    no tenga que llamar ni escribir para saber qué falta.
+    """
+    cuenta = requerimiento.creado_por
+    correo = (cuenta.email if cuenta else "").strip()
+    if not correo:
+        logger.warning(
+            "HU-24: %s se devolvió sin avisar por correo, la cuenta no tiene correo "
+            "registrado. El solicitante lo verá al entrar al sistema.",
+            requerimiento.consecutivo,
+        )
+        return False
+
+    contexto = {"requerimiento": requerimiento, "cambio": cambio, "enlace": enlace_correccion}
+    return _enviar(
+        ASUNTO_DEVOLUCION.format(consecutivo=requerimiento.consecutivo),
+        PLANTILLA_TEXTO_DEVOLUCION,
+        PLANTILLA_HTML_DEVOLUCION,
+        contexto,
+        [correo],
+        "HU-24",
+    )
+
+
+def notificar_reenvio(requerimiento, cambio, enlace_ficha):
+    """Avisa al área de compras que un requerimiento devuelto volvió corregido (HU-24)."""
+    correos = destinatarios()
+    if not correos:
+        logger.warning(
+            "HU-24: %s se reenvió sin notificar, no hay buzones de compras "
+            "configurados (COMPRAS_EMAILS).",
+            requerimiento.consecutivo,
+        )
+        return False
+
+    contexto = {"requerimiento": requerimiento, "cambio": cambio, "enlace": enlace_ficha}
+    return _enviar(
+        ASUNTO_REENVIO.format(consecutivo=requerimiento.consecutivo),
+        PLANTILLA_TEXTO_REENVIO,
+        PLANTILLA_HTML_REENVIO,
+        contexto,
+        correos,
+        "HU-24",
+    )

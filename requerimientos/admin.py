@@ -1,7 +1,9 @@
 from django.contrib import admin
 
 from .models import (
+    Adjunto,
     Area,
+    CambioEstado,
     CentroCosto,
     Item,
     Prioridad,
@@ -70,10 +72,45 @@ class ProveedorSugeridoInline(admin.TabularInline):
     fields = ("orden", "nombre", "telefono", "observaciones")
 
 
+class AdjuntoInline(admin.TabularInline):
+    """Adjuntos del requerimiento (HU-11), solo para consulta.
+
+    Se suben desde el formulario de radicación, que es el que valida tipo,
+    tamaño y contenido; el panel no los reemplaza para no saltarse esas reglas.
+    """
+
+    model = Adjunto
+    extra = 0
+    can_delete = True
+    fields = ("nombre_original", "tipo", "tamano", "subido_por", "subido_en")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class CambioEstadoInline(admin.TabularInline):
+    """Bitácora de estados (HU-23), solo para consulta.
+
+    El estado se cambia desde la ficha, que valida la transición y deja
+    rastro; editar la bitácora a mano en el panel la volvería poco confiable.
+    """
+
+    model = CambioEstado
+    extra = 0
+    can_delete = False
+    fields = ("fecha", "estado_anterior", "estado_nuevo", "usuario", "observacion")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
         "consecutivo",
+        "estado",
         "solicitante",
         "area",
         "centro_costo",
@@ -82,8 +119,8 @@ class RequerimientoAdmin(admin.ModelAdmin):
         "fecha_requerida",
         "total_estimado",
     )
-    list_filter = ("prioridad", "area", "centro_costo")
+    list_filter = ("estado", "prioridad", "area", "centro_costo")
     search_fields = ("consecutivo", "solicitante", "justificacion")
     date_hierarchy = "fecha_solicitud"
-    readonly_fields = ("consecutivo", "fecha_solicitud")
-    inlines = [ItemInline, ProveedorSugeridoInline]
+    readonly_fields = ("consecutivo", "estado", "fecha_solicitud")
+    inlines = [ItemInline, ProveedorSugeridoInline, AdjuntoInline, CambioEstadoInline]

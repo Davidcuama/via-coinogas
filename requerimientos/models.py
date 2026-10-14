@@ -1,9 +1,13 @@
+import uuid
 from decimal import Decimal
+from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 JUSTIFICACION_MAX_LENGTH = 1000
@@ -131,6 +135,60 @@ class SecuenciaRadicacion(models.Model):
         return f"{CONSECUTIVO_PREFIJO}-{anio}-{secuencia.ultimo_numero:0{CONSECUTIVO_DIGITOS}d}"
 
 
+class EstadoRequerimiento(models.TextChoices):
+    """Estados del requerimiento a lo largo de su atención (HU-23).
+
+    Son los cinco del prototipo de interfaces del Sprint 0, que el cliente ya
+    validó: así lo que ve en pantalla coincide con lo que se acordó.
+    """
+
+    RADICADO = "radicado", "Radicado"
+    EN_REVISION = "revision", "En revisión"
+    DEVUELTO = "devuelto", "Devuelto"
+    EN_COTIZACION = "cotizacion", "En cotización"
+    CERRADO = "cerrado", "Cerrado"
+
+
+ESTADO_MAX_LENGTH = 20
+
+# HU-23: a qué estado se puede pasar desde cada uno. El flujo normal del área
+# de compras es revisar, cotizar y cerrar; se permite volver de cotización a
+# revisión porque a veces la cotización destapa algo que hay que revisar de
+# nuevo. Cerrado es definitivo.
+#
+# HU-24: mientras no esté cerrado, compras puede devolverlo al solicitante si le
+# falta información; incluso en cotización, que es cuando suele aparecer lo que
+# no estaba claro. De Devuelto solo se sale cuando el solicitante corrige y
+# reenvía, y vuelve a Radicado para que compras lo retome desde el principio.
+TRANSICIONES = {
+    EstadoRequerimiento.RADICADO: (
+        EstadoRequerimiento.EN_REVISION,
+        EstadoRequerimiento.DEVUELTO,
+    ),
+    EstadoRequerimiento.EN_REVISION: (
+        EstadoRequerimiento.EN_COTIZACION,
+        EstadoRequerimiento.DEVUELTO,
+    ),
+    EstadoRequerimiento.EN_COTIZACION: (
+        EstadoRequerimiento.EN_REVISION,
+        EstadoRequerimiento.CERRADO,
+        EstadoRequerimiento.DEVUELTO,
+    ),
+    EstadoRequerimiento.DEVUELTO: (EstadoRequerimiento.RADICADO,),
+    EstadoRequerimiento.CERRADO: (),
+}
+
+# HU-24: una devolución sin explicación deja al solicitante adivinando qué
+# corregir, que es justo lo que la historia quiere evitar.
+OBSERVACION_DEVOLUCION_MINIMA = 10
+
+OBSERVACION_MAX_LENGTH = 1000
+
+
+class TransicionNoPermitidaError(ValidationError):
+    """Se intentó pasar a un estado al que no se llega desde el actual (HU-23)."""
+
+
 class Requerimiento(models.Model):
     # --- Consecutivo de radicación (HU-16) ---
     # Se asigna en save() la primera vez que se guarda; el usuario nunca lo edita.
@@ -203,6 +261,19 @@ class Requerimiento(models.Model):
         help_text="Qué alternativa sirve y en qué condiciones (marca, referencia, etc.).",
     )
 
+    # --- Estado de la atención (HU-23) ---
+    # No es editable desde un formulario cualquiera: solo cambia por las
+    # transiciones permitidas, que dejan rastro en CambioEstado. Indexado porque
+    # la bandeja filtra por él.
+    estado = models.CharField(
+        "Estado",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+        default=EstadoRequerimiento.RADICADO,
+        db_index=True,
+        editable=False,
+    )
+
     class Meta:
         verbose_name = "Requerimiento"
         verbose_name_plural = "Requerimientos"
@@ -235,6 +306,60 @@ class Requerimiento(models.Model):
         El total sigue siendo válido, pero es parcial: sirve para advertirlo.
         """
         return self.items.filter(precio_referencia__isnull=True).exists()
+
+    def estados_siguientes(self):
+        """Estados a los que se puede pasar desde el actual (HU-23)."""
+        return TRANSICIONES.get(self.estado, ())
+
+    def cambiar_estado(self, nuevo, usuario, observacion=""):
+        """Pasa el requerimiento a `nuevo` y deja el cambio en la bitácora (HU-23).
+
+        La transición se valida contra el estado que hay en la base de datos,
+        no contra el que trae este objeto en memoria: si dos analistas tienen
+        la ficha abierta y los dos actúan, el segundo cambio se rechaza en vez
+        de pisar al primero sin que nadie lo note. La fila se bloquea mientras
+        tanto, y estado y bitácora se guardan juntos o no se guarda ninguno.
+        """
+        with transaction.atomic():
+            actual = Requerimiento.objects.select_for_update().get(pk=self.pk)
+            if nuevo not in TRANSICIONES.get(actual.estado, ()):
+                destino = (
+                    EstadoRequerimiento(nuevo).label
+                    if nuevo in EstadoRequerimiento.values
+                    else nuevo
+                )
+                raise TransicionNoPermitidaError(
+                    f"Un requerimiento en «{actual.get_estado_display()}» no puede pasar a "
+                    f"«{destino}».",
+                    code="transicion_no_permitida",
+                )
+            texto = (observacion or "").strip()
+            if nuevo == EstadoRequerimiento.DEVUELTO and len(texto) < OBSERVACION_DEVOLUCION_MINIMA:
+                raise TransicionNoPermitidaError(
+                    "Para devolver un requerimiento explica qué falta o qué hay que "
+                    "corregir: el solicitante lo va a leer para hacerlo.",
+                    code="observacion_obligatoria",
+                )
+            anterior = actual.estado
+            Requerimiento.objects.filter(pk=self.pk).update(estado=nuevo)
+            self.estado = nuevo
+            return CambioEstado.objects.create(
+                requerimiento=self,
+                estado_anterior=anterior,
+                estado_nuevo=nuevo,
+                observacion=texto,
+                usuario=usuario,
+            )
+
+    @property
+    def ultima_devolucion(self):
+        """El último cambio a Devuelto, con la observación del analista (HU-24)."""
+        return (
+            self.cambios_estado.filter(estado_nuevo=EstadoRequerimiento.DEVUELTO)
+            .select_related("usuario")
+            .order_by("-fecha", "-pk")
+            .first()
+        )
 
     def renumerar_items(self):
         """Deja la numeración de los ítems consecutiva desde 1 (HU-06).
@@ -449,3 +574,125 @@ class ProveedorSugerido(models.Model):
 
     def __str__(self):
         return f"{self.nombre} ({self.telefono})"
+
+
+class CambioEstado(models.Model):
+    """Bitácora de los cambios de estado de un requerimiento (HU-23, HU-24).
+
+    Cada transición queda registrada con quién la hizo y cuándo. La observación
+    es la que hace posible la devolución (HU-24): el analista dice qué falta y
+    el solicitante lo lee en el sistema, sin recurrir al correo. Es opcional en
+    los demás cambios.
+    """
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="cambios_estado",
+        verbose_name="Requerimiento",
+    )
+    estado_anterior = models.CharField(
+        "Estado anterior",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+    )
+    estado_nuevo = models.CharField(
+        "Estado nuevo",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+    )
+    observacion = models.TextField("Observación", blank=True)
+    # SET_NULL: si se da de baja la cuenta, el cambio sigue en la bitácora.
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cambios_estado",
+        verbose_name="Realizado por",
+    )
+    fecha = models.DateTimeField("Fecha", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Cambio de estado"
+        verbose_name_plural = "Cambios de estado"
+        # Cronológico: la bitácora se lee como la historia del requerimiento.
+        ordering = ["fecha", "pk"]
+        indexes = [models.Index(fields=["requerimiento", "fecha"])]
+
+    def __str__(self):
+        return (
+            f"{self.requerimiento.consecutivo}: "
+            f"{self.get_estado_anterior_display()} → {self.get_estado_nuevo_display()}"
+        )
+
+
+def ruta_adjunto(instancia, nombre):
+    """Ruta donde se guarda un adjunto (HU-11).
+
+    Los archivos de un requerimiento quedan juntos, bajo su consecutivo, y con
+    un nombre aleatorio: el original lo escoge el usuario, puede chocar con el
+    de otro adjunto o traer caracteres que el sistema de archivos no admite. Se
+    conserva aparte, en `nombre_original`, para mostrarlo.
+    """
+    extension = Path(nombre).suffix.lower()
+    return f"adjuntos/{instancia.requerimiento.consecutivo}/{uuid.uuid4().hex}{extension}"
+
+
+class Adjunto(models.Model):
+    """Fotografía o documento de soporte de un requerimiento (HU-11).
+
+    Fichas técnicas, cotizaciones de referencia o la foto del artículo: lo que
+    evita que compras tenga que adivinar qué se está pidiendo.
+    """
+
+    class Tipo(models.TextChoices):
+        FOTO = "foto", "Fotografía"
+        DOCUMENTO = "documento", "Documento"
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="adjuntos",
+        verbose_name="Requerimiento",
+    )
+    archivo = models.FileField("Archivo", upload_to=ruta_adjunto, max_length=255)
+    nombre_original = models.CharField("Nombre del archivo", max_length=255)
+    tipo = models.CharField("Tipo", max_length=12, choices=Tipo.choices)
+    tamano = models.PositiveIntegerField("Tamaño (bytes)")
+    subido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="adjuntos_subidos",
+        verbose_name="Subido por",
+    )
+    subido_en = models.DateTimeField("Subido el", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Adjunto"
+        verbose_name_plural = "Adjuntos"
+        ordering = ["subido_en", "pk"]
+
+    def __str__(self):
+        return self.nombre_original
+
+    @property
+    def extension(self):
+        """Extensión en mayúsculas (PDF, XLSX), para rotular los documentos."""
+        return Path(self.nombre_original).suffix.lstrip(".").upper()
+
+
+@receiver(post_delete, sender=Adjunto)
+def borrar_archivo_del_adjunto(sender, instance, **kwargs):
+    """Borra del disco el archivo de un adjunto eliminado (HU-11).
+
+    Django borra la fila pero no el archivo, y con el tiempo el disco se llena
+    de adjuntos que nada apunta. Se espera a que la transacción se confirme: si
+    se deshiciera, la fila volvería y su archivo tiene que seguir ahí. También
+    cubre el borrado en cascada de un requerimiento entero.
+    """
+    archivo = instance.archivo
+    if archivo:
+        transaction.on_commit(lambda: archivo.storage.delete(archivo.name))

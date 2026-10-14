@@ -3,15 +3,38 @@
 {% block content %}
 <div class="container my-4" style="max-width: 1140px;">
 
-  <div class="banda mb-4">
-    <div class="eyebrow">Radicación de compra</div>
-    <h1>Nuevo requerimiento</h1>
-    <p class="sub">Todos los campos son obligatorios.</p>
-  </div>
+  {% if modo_correccion %}
+    {# HU-24: el mismo formulario, para corregir un requerimiento devuelto. #}
+    <div class="banda mb-4">
+      <div class="eyebrow">Corrección de requerimiento devuelto</div>
+      <h1 class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="placa">{{ requerimiento.consecutivo }}</span>
+        {% include "requerimientos/_estado.html" %}
+      </h1>
+      <p class="sub">Corrige lo que te pidieron y reenvíalo: conserva el mismo consecutivo.</p>
+    </div>
+
+    {% if devolucion %}
+      <div class="devolucion-aviso mb-4" id="observacion-devolucion" role="note">
+        <div class="devolucion-titulo">Lo que te pidió el área de compras</div>
+        <p class="mb-2">{{ devolucion.observacion|linebreaksbr }}</p>
+        <div class="mini">
+          {% if devolucion.usuario %}{{ devolucion.usuario.get_full_name|default:devolucion.usuario.get_username }} · {% endif %}
+          {{ devolucion.fecha|date:"d/m/Y H:i" }}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="banda mb-4">
+      <div class="eyebrow">Radicación de compra</div>
+      <h1>Nuevo requerimiento</h1>
+      <p class="sub">Todos los campos son obligatorios.</p>
+    </div>
+  {% endif %}
 
   {% if form.errors or proveedores.errors %}
     <div class="alert alert-danger" role="alert" id="resumen-errores">
-      <strong>No se pudo radicar el requerimiento.</strong>
+      <strong>{% if modo_correccion %}No se pudo reenviar el requerimiento.{% else %}No se pudo radicar el requerimiento.{% endif %}</strong>
       Revisa los campos marcados:
       <ul class="mb-0">
         {% for etiqueta in form.campos_con_error %}<li>{{ etiqueta }}</li>{% endfor %}
@@ -42,7 +65,8 @@
 
   {# HU-15: `needs-validation` activa la retroalimentación inmediata de Bootstrap en el navegador. #}
   {# El servidor valida de todas formas: es la fuente de verdad. #}
-  <form method="post" class="needs-validation" novalidate>
+  {# HU-11: multipart para que el formulario pueda llevar archivos. #}
+  <form method="post" class="needs-validation" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
 
     <div class="card mb-4">
@@ -212,15 +236,102 @@
       </div>
     </div>
 
+    {# HU-11: fotografías y documentos de soporte. Son opcionales. #}
+    <div class="card mb-4" id="tarjeta-adjuntos">
+      <div class="card-header"><h2>Fotografías y documentos de soporte</h2></div>
+      <div class="card-body">
+        <p class="form-text mt-0 mb-3">
+          Una foto del artículo, la ficha técnica o una cotización de referencia
+          evitan que compras tenga que adivinar qué necesitas.
+        </p>
+
+        {% if archivos_descartados %}
+          <div class="alert alert-warning py-2" role="alert" id="aviso-archivos-descartados">
+            El formulario tenía errores y el navegador no conserva los archivos
+            seleccionados. Vuelve a elegirlos antes de radicar.
+          </div>
+        {% endif %}
+
+        {% if modo_correccion and adjuntos.quitar %}
+          {# HU-24: lo que ya estaba adjunto, con la opción de quitarlo. #}
+          <div class="mb-3" id="adjuntos-existentes">
+            <div class="form-label">Ya adjuntos</div>
+            {% for opcion in adjuntos.quitar %}
+              <div class="form-check">
+                {{ opcion.tag }}
+                <label class="form-check-label" for="{{ opcion.id_for_label }}">
+                  Quitar «{{ opcion.choice_label }}»
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <label for="{{ adjuntos.archivos.id_for_label }}" class="form-label">
+          {% if modo_correccion %}Agregar archivos{% else %}Adjuntar archivos{% endif %}
+        </label>
+        {{ adjuntos.archivos }}
+
+        {# HU-12: en el celular, la foto se toma directamente con la cámara. #}
+        {# El selector no lleva `name`: cada toma pasa a un campo oculto de #}
+        {# `#tomas-camara`, para que se acumulen en vez de reemplazarse. #}
+        <div class="tomar-foto" id="bloque-camara">
+          <label class="btn btn-outline-secondary btn-sm" for="id_camara">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+            Tomar foto con la cámara
+          </label>
+          <input type="file" id="id_camara" accept="image/*" capture="environment"
+                 class="visually-hidden">
+        </div>
+        <div id="tomas-camara" hidden></div>
+
+        <div class="form-text">{{ adjuntos.ayuda }}</div>
+        {% for error in adjuntos.archivos.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+
+        {# Vista previa de lo seleccionado, antes de enviar. La arma el script de abajo. #}
+        <ul class="lista-seleccionados" id="lista-seleccionados" hidden></ul>
+
+        {% if not modo_correccion %}
+          <p class="form-text mb-0 mt-2">
+            Los adjuntos no se guardan en el borrador: selecciónalos al momento de radicar.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if modo_correccion %}
+      {# HU-24: un mensaje opcional para compras, que queda en la bitácora. #}
+      <div class="card mb-4" id="tarjeta-reenvio">
+        <div class="card-header"><h2>Reenviar a compras</h2></div>
+        <div class="card-body">
+          <label for="{{ reenvio.respuesta.id_for_label }}" class="form-label">{{ reenvio.respuesta.label }}</label>
+          {{ reenvio.respuesta }}
+          {% for error in reenvio.respuesta.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
     <div class="d-flex gap-2">
       {# HU-34: este botón no envía directo; abre el aviso de confirmación. El #}
       {# envío real lo hace el botón del modal, para evitar radicaciones por error. #}
-      <button type="submit" class="btn btn-primary" id="radicar">Radicar requerimiento</button>
-      {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
-      <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
-              formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
-        Guardar borrador
+      <button type="submit" class="btn btn-primary" id="radicar">
+        {% if modo_correccion %}Reenviar a compras{% else %}Radicar requerimiento{% endif %}
       </button>
+      {% if modo_correccion %}
+        <a href="{% url 'requerimientos:mios' %}" class="btn btn-outline-secondary">Cancelar</a>
+      {% else %}
+        {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
+        <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
+                formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
+          Guardar borrador
+        </button>
+      {% endif %}
     </div>
   </form>
 
@@ -231,13 +342,20 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title h5" id="titulo-confirmar-radicacion">¿Radicar este requerimiento?</h2>
+          <h2 class="modal-title h5" id="titulo-confirmar-radicacion">
+            {% if modo_correccion %}¿Reenviar este requerimiento?{% else %}¿Radicar este requerimiento?{% endif %}
+          </h2>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
           <p class="mb-3">
-            Una vez radicado se le asigna un consecutivo y se avisa al área de
-            compras. Revisa el resumen antes de confirmar:
+            {% if modo_correccion %}
+              Vuelve a la bandeja de compras con el mismo consecutivo y se le avisa
+              al área de compras. Revisa el resumen antes de confirmar:
+            {% else %}
+              Una vez radicado se le asigna un consecutivo y se avisa al área de
+              compras. Revisa el resumen antes de confirmar:
+            {% endif %}
           </p>
           <dl class="row mb-0">
             <dt class="col-5">Solicitante</dt>
@@ -248,6 +366,8 @@
             <dd class="col-7" id="resumen-fecha">—</dd>
             <dt class="col-5">Ítems</dt>
             <dd class="col-7" id="resumen-items">—</dd>
+            <dt class="col-5">Adjuntos</dt>
+            <dd class="col-7" id="resumen-adjuntos">—</dd>
           </dl>
         </div>
         <div class="modal-footer">
@@ -255,7 +375,7 @@
             Revisar de nuevo
           </button>
           <button type="button" class="btn btn-primary" id="confirmar-radicacion">
-            Confirmar y radicar
+            {% if modo_correccion %}Confirmar y reenviar{% else %}Confirmar y radicar{% endif %}
           </button>
         </div>
       </div>
@@ -338,6 +458,14 @@
       document.getElementById("resumen-prioridad").textContent = texto("id_prioridad");
       document.getElementById("resumen-fecha").textContent = texto("id_fecha_requerida");
       document.getElementById("resumen-items").textContent = contarItems();
+      // HU-11 y HU-12: cuántos archivos van, sumando las fotos de la cámara.
+      var cuantos = Array.prototype.reduce.call(
+        formulario.querySelectorAll('input[type="file"][name="archivos"]'),
+        function (total, campo) { return total + (campo.files ? campo.files.length : 0); },
+        0
+      );
+      document.getElementById("resumen-adjuntos").textContent =
+        cuantos ? cuantos + " archivo" + (cuantos === 1 ? "" : "s") : "Ninguno";
       modal.show();
     });
 
@@ -507,6 +635,131 @@
       setTimeout(calcularTotales, 0);
     });
     calcularTotales();
+  });
+</script>
+
+{{ limite_adjuntos|json_script:"limite-adjuntos" }}
+<script>
+  // HU-11 y HU-12: muestra lo que se va a adjuntar y avisa de inmediato lo que
+  // no va a pasar (tipo o tamaño), sin esperar a enviar. Es solo una ayuda: el
+  // servidor vuelve a revisarlo todo, incluido el contenido real de cada archivo.
+  document.addEventListener("DOMContentLoaded", function () {
+    var selector = document.getElementById("id_archivos");
+    var camara = document.getElementById("id_camara");
+    var tomas = document.getElementById("tomas-camara");
+    var lista = document.getElementById("lista-seleccionados");
+    if (!selector || !lista) return;
+
+    var limites = JSON.parse(document.getElementById("limite-adjuntos").textContent);
+    var MAXIMO = limites.maximo;
+    var TAMANO_MAXIMO = limites.tamano;
+    var EXTENSIONES = limites.extensiones;
+
+    // HU-12: para acumular fotos hace falta mover cada toma a su propio campo,
+    // y eso necesita DataTransfer. Si el navegador no lo tiene, la cámara queda
+    // como un campo más y guarda una sola foto: menos cómodo, pero funciona.
+    var puedeAcumular = typeof DataTransfer !== "undefined";
+    if (camara && !puedeAcumular) camara.name = "archivos";
+
+    function peso(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function extension(nombre) {
+      var punto = nombre.lastIndexOf(".");
+      return punto === -1 ? "" : nombre.slice(punto).toLowerCase();
+    }
+
+    function problemaDe(archivo) {
+      if (EXTENSIONES.indexOf(extension(archivo.name)) === -1) return "tipo no admitido";
+      if (archivo.size > TAMANO_MAXIMO) return "supera " + peso(TAMANO_MAXIMO);
+      return "";
+    }
+
+    function fila(archivo, campoDeLaToma) {
+      var problema = problemaDe(archivo);
+      var item = document.createElement("li");
+      item.className = problema ? "con-problema" : "";
+
+      var nombre = document.createElement("span");
+      nombre.className = "nombre";
+      nombre.textContent = (campoDeLaToma ? "📷 " : "") + archivo.name;
+      item.appendChild(nombre);
+
+      var detalle = document.createElement("span");
+      detalle.className = "detalle";
+      detalle.textContent = problema || peso(archivo.size);
+      item.appendChild(detalle);
+
+      // Una foto mal tomada se quita sin tener que empezar de nuevo.
+      if (campoDeLaToma) {
+        var quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "btn btn-link btn-sm p-0 quitar-toma";
+        quitar.textContent = "Quitar";
+        quitar.addEventListener("click", function () {
+          campoDeLaToma.remove();
+          pintar();
+        });
+        item.appendChild(quitar);
+      }
+      return item;
+    }
+
+    function pintar() {
+      lista.innerHTML = "";
+      var total = 0;
+
+      Array.prototype.forEach.call(selector.files || [], function (archivo) {
+        lista.appendChild(fila(archivo, null));
+        total++;
+      });
+      if (tomas) {
+        Array.prototype.forEach.call(tomas.querySelectorAll("input"), function (campo) {
+          if (campo.files && campo.files[0]) {
+            lista.appendChild(fila(campo.files[0], campo));
+            total++;
+          }
+        });
+      }
+
+      if (total > MAXIMO) {
+        var aviso = document.createElement("li");
+        aviso.className = "con-problema";
+        aviso.textContent = "Llevas " + total + " archivos; el máximo es " + MAXIMO + ".";
+        lista.appendChild(aviso);
+      }
+      lista.hidden = total === 0;
+    }
+
+    selector.addEventListener("change", pintar);
+
+    if (camara && puedeAcumular && tomas) {
+      camara.addEventListener("change", function () {
+        var foto = camara.files && camara.files[0];
+        if (!foto) return;
+        // Cada toma lleva un nombre propio: la cámara suele llamarlas todas
+        // igual ("image.jpg") y así se distinguen en la lista y en la ficha.
+        var numero = tomas.querySelectorAll("input").length + 1;
+        var nombre = "foto-camara-" + numero + (extension(foto.name) || ".jpg");
+        var renombrada = new File([foto], nombre, { type: foto.type });
+
+        var campo = document.createElement("input");
+        campo.type = "file";
+        campo.name = "archivos";
+        campo.hidden = true;
+        var transferencia = new DataTransfer();
+        transferencia.items.add(renombrada);
+        campo.files = transferencia.files;
+        tomas.appendChild(campo);
+
+        // Se vacía para que la próxima toma dispare otra vez el evento.
+        camara.value = "";
+        pintar();
+      });
+    }
   });
 </script>
 

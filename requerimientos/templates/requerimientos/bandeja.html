@@ -27,7 +27,12 @@
         </div>
       {% endif %}
       <div class="row g-2 align-items-end">
-        <div class="col-6 col-md-3">
+        {# HU-23: lo primero que un analista filtra es qué le falta por atender. #}
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.estado.id_for_label }}" class="mini mb-1">{{ filtros.estado.label }}</label>
+          {{ filtros.estado }}
+        </div>
+        <div class="col-6 col-md-2">
           <label for="{{ filtros.area.id_for_label }}" class="mini mb-1">{{ filtros.area.label }}</label>
           {{ filtros.area }}
         </div>
@@ -43,7 +48,7 @@
           <label for="{{ filtros.hasta.id_for_label }}" class="mini mb-1">{{ filtros.hasta.label }}</label>
           {{ filtros.hasta }}
         </div>
-        <div class="col-12 col-md-3">
+        <div class="col-6 col-md-2">
           <label for="{{ filtros.orden.id_for_label }}" class="mini mb-1">{{ filtros.orden.label }}</label>
           {{ filtros.orden }}
         </div>
@@ -77,10 +82,6 @@
       {% endif %}
     </div>
   </div>
-
-  <p class="form-text mt-3">
-    El filtro por estado se agrega cuando entre la gestión de estados (HU-23).
-  </p>
 
 </div>
 {% endblock %}

@@ -1,4 +1,5 @@
 import csv
+import re
 import shutil
 import smtplib
 import tempfile
@@ -14,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -21,19 +23,33 @@ from django.db import connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.datastructures import MultiValueDict
 
+from . import adjuntos as reglas_adjuntos
 from . import notificaciones, perfiles
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
-from .forms import CAMPOS_OBLIGATORIOS, ItemForm, RequerimientoForm
+from .forms import (
+    CAMPOS_OBLIGATORIOS,
+    AdjuntosForm,
+    CambioEstadoForm,
+    ItemForm,
+    RequerimientoForm,
+    VariosArchivosField,
+)
 from .models import (
+    Adjunto,
     Area,
+    CambioEstado,
     CentroCosto,
+    EstadoRequerimiento,
     Item,
     Prioridad,
     ProveedorSugerido,
     Requerimiento,
     SecuenciaRadicacion,
+    TransicionNoPermitidaError,
     UnidadMedida,
+    ruta_adjunto,
 )
 
 
@@ -2844,3 +2860,1124 @@ class ProductosSustitutosTests(VistaTestCase):
         with self.assertRaises(ValidationError) as contexto:
             requerimiento.full_clean()
         self.assertIn("sustitutos", contexto.exception.message_dict)
+
+
+def crear_requerimiento(creado_por=None, **overrides):
+    """Requerimiento mínimo y válido, para las pruebas de estados y adjuntos.
+
+    Crea los catálogos que necesita si todavía no existen, de modo que cada
+    prueba pida solo lo que le importa.
+    """
+    area, _ = Area.objects.get_or_create(nombre="Mantenimiento")
+    centro_costo, _ = CentroCosto.objects.get_or_create(
+        codigo="CC-100", defaults={"nombre": "Planta Medellín"}
+    )
+    prioridad, _ = Prioridad.objects.get_or_create(nombre=Prioridad.MEDIA, defaults={"orden": 2})
+    datos = {
+        "solicitante": "Ana Gómez",
+        "area": area,
+        "centro_costo": centro_costo,
+        "justificacion": "Reposición de instrumentación de planta.",
+        "prioridad": prioridad,
+        "fecha_requerida": date.today() + timedelta(days=10),
+        "creado_por": creado_por,
+    }
+    datos.update(overrides)
+    return Requerimiento.objects.create(**datos)
+
+
+class EsquemaEstadoTests(TestCase):
+    """HU-23: el requerimiento tiene estado y su bitácora de cambios."""
+
+    def test_todo_requerimiento_nace_radicado(self):
+        self.assertEqual(crear_requerimiento().estado, EstadoRequerimiento.RADICADO)
+
+    def test_son_los_cinco_estados_del_prototipo(self):
+        self.assertEqual(
+            [etiqueta for _, etiqueta in EstadoRequerimiento.choices],
+            ["Radicado", "En revisión", "Devuelto", "En cotización", "Cerrado"],
+        )
+
+    def test_el_estado_no_se_edita_desde_el_formulario_de_radicacion(self):
+        # Solo cambia por transiciones que dejan rastro: si estuviera en el
+        # formulario, el solicitante podría radicar algo ya "cerrado".
+        self.assertNotIn("estado", RequerimientoForm().fields)
+
+    def test_la_bitacora_se_lee_en_orden_cronologico(self):
+        requerimiento = crear_requerimiento()
+        primero = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.EN_REVISION,
+        )
+        segundo = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.EN_REVISION,
+            estado_nuevo=EstadoRequerimiento.EN_COTIZACION,
+        )
+        self.assertEqual(list(requerimiento.cambios_estado.all()), [primero, segundo])
+
+    def test_un_cambio_se_describe_con_su_consecutivo_y_la_transicion(self):
+        requerimiento = crear_requerimiento()
+        cambio = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.DEVUELTO,
+        )
+        self.assertEqual(str(cambio), f"{requerimiento.consecutivo}: Radicado → Devuelto")
+
+    def test_la_bitacora_sobrevive_a_la_baja_de_la_cuenta(self):
+        cuenta = crear_usuario("daryi.silva", perfil=perfiles.ANALISTA)
+        cambio = CambioEstado.objects.create(
+            requerimiento=crear_requerimiento(),
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.EN_REVISION,
+            usuario=cuenta,
+        )
+        cuenta.delete()
+        cambio.refresh_from_db()
+        self.assertIsNone(cambio.usuario)
+
+
+class EsquemaAdjuntoTests(TestCase):
+    """HU-11: el requerimiento admite adjuntos."""
+
+    def test_la_ruta_agrupa_por_consecutivo_con_nombre_aleatorio(self):
+        requerimiento = crear_requerimiento()
+        adjunto = Adjunto(requerimiento=requerimiento)
+
+        ruta = ruta_adjunto(adjunto, "Ficha Técnica (v2).PDF")
+
+        self.assertTrue(ruta.startswith(f"adjuntos/{requerimiento.consecutivo}/"))
+        # La extensión se conserva, en minúsculas; el nombre del usuario no.
+        self.assertTrue(ruta.endswith(".pdf"))
+        self.assertNotIn("Ficha", ruta)
+
+    def test_dos_archivos_con_el_mismo_nombre_no_chocan(self):
+        adjunto = Adjunto(requerimiento=crear_requerimiento())
+        self.assertNotEqual(ruta_adjunto(adjunto, "foto.jpg"), ruta_adjunto(adjunto, "foto.jpg"))
+
+    def test_un_adjunto_se_muestra_con_su_nombre_original(self):
+        adjunto = Adjunto(nombre_original="cotizacion-proveedor.pdf")
+        self.assertEqual(str(adjunto), "cotizacion-proveedor.pdf")
+
+
+# --- HU-11: adjuntos -------------------------------------------------------
+
+# Contenidos mínimos con la firma real de cada formato: lo que el validador
+# revisa son los primeros bytes, no la extensión.
+CONTENIDO_JPG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+CONTENIDO_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+CONTENIDO_PDF = b"%PDF-1.7\n" + b"0" * 64
+CONTENIDO_DOCX = b"PK\x03\x04" + b"\x00" * 64
+CONTENIDO_DOC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64
+CONTENIDO_WEBP = b"RIFF" + b"\x24\x00\x00\x00" + b"WEBPVP8 " + b"\x00" * 64
+CONTENIDO_HEIC = b"\x00\x00\x00\x18" + b"ftypheic" + b"\x00" * 64
+
+
+def archivo(nombre, contenido=CONTENIDO_JPG, tipo="application/octet-stream"):
+    return SimpleUploadedFile(nombre, contenido, content_type=tipo)
+
+
+class MediaTemporalMixin:
+    """Guarda los adjuntos de la prueba en una carpeta temporal y la borra al final.
+
+    Sin esto las pruebas escribirían en la carpeta `media` real del proyecto.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.carpeta_media = tempfile.mkdtemp(prefix="via-media-")
+        ajuste = override_settings(MEDIA_ROOT=self.carpeta_media)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+        self.addCleanup(shutil.rmtree, self.carpeta_media, ignore_errors=True)
+
+
+class ValidacionAdjuntosTests(TestCase):
+    """HU-11: qué archivos se aceptan, sin pasar por las vistas."""
+
+    def test_acepta_cada_formato_con_su_firma_real(self):
+        casos = [
+            ("foto.jpg", CONTENIDO_JPG, Adjunto.Tipo.FOTO),
+            ("foto.JPEG", CONTENIDO_JPG, Adjunto.Tipo.FOTO),
+            ("captura.png", CONTENIDO_PNG, Adjunto.Tipo.FOTO),
+            ("imagen.webp", CONTENIDO_WEBP, Adjunto.Tipo.FOTO),
+            ("iphone.heic", CONTENIDO_HEIC, Adjunto.Tipo.FOTO),
+            ("ficha.pdf", CONTENIDO_PDF, Adjunto.Tipo.DOCUMENTO),
+            ("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO),
+            ("precios.xlsx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO),
+            ("formato-viejo.doc", CONTENIDO_DOC, Adjunto.Tipo.DOCUMENTO),
+            ("tabla-vieja.xls", CONTENIDO_DOC, Adjunto.Tipo.DOCUMENTO),
+        ]
+        for nombre, contenido, tipo in casos:
+            with self.subTest(archivo=nombre):
+                self.assertEqual(reglas_adjuntos.validar_archivo(archivo(nombre, contenido)), tipo)
+
+    def test_rechaza_un_tipo_no_admitido(self):
+        with self.assertRaisesMessage(ValidationError, "no es un tipo de archivo admitido"):
+            reglas_adjuntos.validar_archivo(archivo("instalador.exe", b"MZ" + b"\x00" * 64))
+
+    def test_rechaza_un_ejecutable_disfrazado_de_pdf(self):
+        # La extensión la escoge quien sube el archivo; la firma no se puede
+        # falsear sin dañar el ejecutable.
+        with self.assertRaisesMessage(ValidationError, "no es realmente un archivo PDF"):
+            reglas_adjuntos.validar_archivo(archivo("ficha.pdf", b"MZ\x90\x00" + b"\x00" * 64))
+
+    def test_rechaza_una_pagina_web_disfrazada_de_foto(self):
+        with self.assertRaisesMessage(ValidationError, "no es realmente un archivo JPG"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", b"<html><script>"))
+
+    def test_rechaza_un_archivo_vacio(self):
+        with self.assertRaisesMessage(ValidationError, "está vacío"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", b""))
+
+    @mock.patch.object(reglas_adjuntos, "TAMANO_MAXIMO", 32)
+    def test_rechaza_un_archivo_demasiado_grande(self):
+        with self.assertRaisesMessage(ValidationError, "el máximo por archivo es"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", CONTENIDO_JPG))
+
+    def test_rechaza_pasarse_del_maximo_de_adjuntos(self):
+        maximo = reglas_adjuntos.MAX_ADJUNTOS
+        reglas_adjuntos.validar_cantidad(maximo)  # justo en el límite pasa
+        with self.assertRaisesMessage(ValidationError, f"hasta {maximo} archivos"):
+            reglas_adjuntos.validar_cantidad(maximo + 1)
+
+    def test_el_maximo_cuenta_lo_que_ya_estaba_adjunto(self):
+        # Al corregir un requerimiento devuelto (HU-24) se suma a lo que había.
+        with self.assertRaisesMessage(ValidationError, "puedes sumar 2 más"):
+            reglas_adjuntos.validar_cantidad(3, existentes=reglas_adjuntos.MAX_ADJUNTOS - 2)
+
+    def test_el_formulario_reporta_todos_los_errores_de_una_vez(self):
+        formulario = AdjuntosForm(
+            data={},
+            files=MultiValueDict(
+                {
+                    "archivos": [
+                        archivo("bien.jpg"),
+                        archivo("malo.exe", b"MZ"),
+                        archivo("falso.pdf", b"no soy pdf"),
+                    ]
+                }
+            ),
+        )
+        self.assertFalse(formulario.is_valid())
+        errores = " ".join(formulario.errors["archivos"])
+        self.assertIn("malo.exe", errores)
+        self.assertIn("falso.pdf", errores)
+        self.assertNotIn("bien.jpg", errores)
+
+    def test_sin_archivos_el_formulario_es_valido(self):
+        formulario = AdjuntosForm(data={}, files=MultiValueDict())
+        self.assertTrue(formulario.is_valid())
+        self.assertEqual(formulario.adjuntos_validos(), [])
+
+
+class RadicarConAdjuntosTests(MediaTemporalMixin, VistaTestCase):
+    """HU-11: el solicitante adjunta fotos y documentos al radicar."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, archivos=(), **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de instrumentación.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+            "archivos": list(archivos),
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_radicar_con_una_foto_y_una_ficha_tecnica(self):
+        respuesta = self.client.post(
+            self.url,
+            self._datos(
+                [
+                    archivo("manometro.jpg", CONTENIDO_JPG),
+                    archivo("Ficha técnica.pdf", CONTENIDO_PDF),
+                ]
+            ),
+        )
+
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+        foto, ficha = requerimiento.adjuntos.all()
+        self.assertEqual((foto.nombre_original, foto.tipo), ("manometro.jpg", Adjunto.Tipo.FOTO))
+        self.assertEqual(
+            (ficha.nombre_original, ficha.tipo), ("Ficha técnica.pdf", Adjunto.Tipo.DOCUMENTO)
+        )
+        self.assertEqual(ficha.tamano, len(CONTENIDO_PDF))
+        self.assertEqual(ficha.subido_por, self.usuario)
+        # El archivo quedó en disco, bajo el consecutivo y con nombre aleatorio.
+        self.assertTrue(ficha.archivo.storage.exists(ficha.archivo.name))
+        self.assertIn(requerimiento.consecutivo, ficha.archivo.name)
+
+    def test_radicar_sin_adjuntos_sigue_siendo_posible(self):
+        # Hay compras que se entienden con la descripción: adjuntar es opcional.
+        self.client.post(self.url, self._datos())
+        self.assertEqual(Requerimiento.objects.get().adjuntos.count(), 0)
+
+    def test_un_archivo_invalido_no_deja_nada_radicado(self):
+        respuesta = self.client.post(
+            self.url,
+            self._datos([archivo("bien.jpg"), archivo("ficha.pdf", b"esto no es un pdf")]),
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertEqual(Adjunto.objects.count(), 0)
+        self.assertContains(respuesta, "no es realmente un archivo PDF")
+
+    def test_pasarse_del_maximo_no_radica(self):
+        demasiados = [archivo(f"foto-{n}.jpg") for n in range(reglas_adjuntos.MAX_ADJUNTOS + 1)]
+        respuesta = self.client.post(self.url, self._datos(demasiados))
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertContains(respuesta, f"hasta {reglas_adjuntos.MAX_ADJUNTOS} archivos")
+
+    def test_si_el_encabezado_falla_avisa_que_hay_que_volver_a_elegir_los_archivos(self):
+        respuesta = self.client.post(
+            self.url, self._datos([archivo("manometro.jpg")], justificacion="")
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'id="aviso-archivos-descartados"')
+
+    def test_sin_archivos_no_aparece_el_aviso_de_descartados(self):
+        respuesta = self.client.post(self.url, self._datos(justificacion=""))
+        self.assertNotContains(respuesta, 'id="aviso-archivos-descartados"')
+
+    def test_el_formulario_viaja_como_multipart(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'enctype="multipart/form-data"')
+        self.assertContains(respuesta, 'id="limite-adjuntos"')
+
+    def test_la_confirmacion_muestra_lo_adjuntado(self):
+        respuesta = self.client.post(self.url, self._datos([archivo("manometro.jpg")]), follow=True)
+        self.assertContains(respuesta, "manometro.jpg")
+        adjunto = Adjunto.objects.get()
+        self.assertContains(respuesta, reverse("requerimientos:adjunto", args=[adjunto.pk]))
+
+
+class DescargaAdjuntoTests(MediaTemporalMixin, TestCase):
+    """HU-11: cada adjunto lo ve solo quien tiene derecho."""
+
+    def setUp(self):
+        super().setUp()
+        self.duena = crear_usuario("ana.gomez", "Ana", "Gómez", perfiles.SOLICITANTE)
+        self.requerimiento = crear_requerimiento(creado_por=self.duena)
+        self.foto = self._adjuntar("manometro.jpg", CONTENIDO_JPG, Adjunto.Tipo.FOTO)
+
+    def _adjuntar(self, nombre, contenido, tipo):
+        return reglas_adjuntos.guardar(
+            self.requerimiento, [(archivo(nombre, contenido), tipo)], self.duena
+        )[0]
+
+    def _url(self, adjunto):
+        return reverse("requerimientos:adjunto", args=[adjunto.pk])
+
+    def _como(self, cuenta):
+        cliente = Client()
+        cliente.force_login(cuenta)
+        return cliente
+
+    def test_quien_radico_ve_su_adjunto(self):
+        respuesta = self._como(self.duena).get(self._url(self.foto))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(b"".join(respuesta.streaming_content), CONTENIDO_JPG)
+
+    def test_el_analista_ve_cualquier_adjunto(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.assertEqual(self._como(analista).get(self._url(self.foto)).status_code, 200)
+
+    def test_otro_solicitante_no_lo_ve_ni_sabe_que_existe(self):
+        otro = crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE)
+        # 404 y no 403: un "prohibido" ya le confirmaría que existe.
+        self.assertEqual(self._como(otro).get(self._url(self.foto)).status_code, 404)
+
+    def test_sin_sesion_manda_al_ingreso(self):
+        url = self._url(self.foto)
+        respuesta = self.client.get(url)
+        self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={url}")
+
+    def test_un_adjunto_que_no_existe_responde_404(self):
+        self.assertEqual(
+            self._como(self.duena)
+            .get(reverse("requerimientos:adjunto", args=[999999]))
+            .status_code,
+            404,
+        )
+
+    def test_la_foto_se_abre_en_el_navegador_y_el_word_se_descarga(self):
+        word = self._adjuntar("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO)
+        cliente = self._como(self.duena)
+
+        foto = cliente.get(self._url(self.foto))
+        documento = cliente.get(self._url(word))
+
+        self.assertTrue(foto["Content-Disposition"].startswith("inline"))
+        self.assertTrue(documento["Content-Disposition"].startswith("attachment"))
+        # Se descarga con el nombre que le dio el usuario, no con el aleatorio.
+        self.assertIn("cotizacion.docx", documento["Content-Disposition"])
+
+    def test_si_el_archivo_desaparecio_del_disco_responde_404(self):
+        self.foto.archivo.storage.delete(self.foto.archivo.name)
+        self.assertEqual(self._como(self.duena).get(self._url(self.foto)).status_code, 404)
+
+    def test_borrar_el_adjunto_borra_el_archivo_del_disco(self):
+        nombre = self.foto.archivo.name
+        almacen = self.foto.archivo.storage
+        with self.captureOnCommitCallbacks(execute=True):
+            self.foto.delete()
+        self.assertFalse(almacen.exists(nombre))
+
+    def test_borrar_el_requerimiento_borra_sus_archivos(self):
+        nombre = self.foto.archivo.name
+        almacen = self.foto.archivo.storage
+        with self.captureOnCommitCallbacks(execute=True):
+            self.requerimiento.delete()
+        self.assertFalse(almacen.exists(nombre))
+
+    def test_la_ficha_enlaza_la_descarga_protegida_y_no_el_archivo_directo(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        respuesta = self._como(analista).get(
+            reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+        )
+        self.assertContains(respuesta, self._url(self.foto))
+        self.assertNotContains(respuesta, "/media/")
+        self.assertContains(respuesta, "manometro.jpg")
+
+    def test_la_ficha_avisa_cuando_no_hay_adjuntos(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.foto.delete()
+        respuesta = self._como(analista).get(
+            reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+        )
+        self.assertContains(respuesta, "El solicitante no adjuntó archivos.")
+
+    def test_un_documento_se_rotula_con_su_extension(self):
+        word = self._adjuntar("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO)
+        self.assertEqual(word.extension, "DOCX")
+
+
+class ReglasAdjuntosBordesTests(TestCase):
+    """HU-11: casos límite de las reglas, sin pasar por las vistas."""
+
+    def test_un_anonimo_no_puede_ver_ningun_adjunto(self):
+        adjunto = Adjunto(requerimiento=crear_requerimiento())
+        self.assertFalse(reglas_adjuntos.puede_ver(AnonymousUser(), adjunto))
+
+    def test_el_campo_acepta_un_solo_archivo_suelto(self):
+        # Un navegador sin `multiple` manda un archivo, no una lista.
+        campo = VariosArchivosField(required=False)
+        foto = archivo("foto.jpg")
+        self.assertEqual(campo.clean(foto), [foto])
+
+    def test_el_campo_vacio_devuelve_una_lista_vacia(self):
+        self.assertEqual(VariosArchivosField(required=False).clean(None), [])
+
+
+class FotoDesdeMovilTests(MediaTemporalMixin, VistaTestCase):
+    """HU-12: el solicitante toma la foto con la cámara del celular."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def test_ofrece_abrir_la_camara_trasera(self):
+        respuesta = self.client.get(self.url)
+        html = respuesta.content.decode()
+        campo = re.search(r'<input type="file" id="id_camara"[^>]*>', html).group(0)
+        self.assertIn('accept="image/*"', campo)
+        # `environment` es la cámara trasera: la que apunta al artículo.
+        self.assertIn('capture="environment"', campo)
+
+    def test_el_selector_de_camara_no_se_envia_por_si_mismo(self):
+        # Sin `name`, el navegador no lo manda: cada toma viaja en su propio
+        # campo oculto, y así no llega duplicada.
+        html = self.client.get(self.url).content.decode()
+        campo = re.search(r'<input type="file" id="id_camara"[^>]*>', html).group(0)
+        self.assertNotIn("name=", campo)
+
+    def test_las_fotos_de_la_camara_se_suman_a_lo_elegido_en_el_selector(self):
+        # El navegador manda todo bajo el mismo nombre de campo: lo del selector
+        # general y cada toma de la cámara.
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Válvula dañada en campo.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+            "archivos": [
+                archivo("ficha.pdf", CONTENIDO_PDF),
+                archivo("foto-camara-1.jpg", CONTENIDO_JPG),
+                archivo("foto-camara-2.jpg", CONTENIDO_JPG),
+            ],
+        }
+        self.client.post(self.url, datos)
+
+        adjuntos = Requerimiento.objects.get().adjuntos.all()
+        self.assertEqual(
+            [(a.nombre_original, a.tipo) for a in adjuntos],
+            [
+                ("ficha.pdf", Adjunto.Tipo.DOCUMENTO),
+                ("foto-camara-1.jpg", Adjunto.Tipo.FOTO),
+                ("foto-camara-2.jpg", Adjunto.Tipo.FOTO),
+            ],
+        )
+
+
+# --- HU-23: estados del requerimiento ---------------------------------------
+
+
+class TransicionesEstadoTests(TestCase):
+    """HU-23: reglas del flujo de estados, sin pasar por las vistas."""
+
+    def setUp(self):
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = crear_requerimiento()
+
+    def test_el_flujo_completo_revisar_cotizar_y_cerrar(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.CERRADO)
+
+    def test_cada_cambio_queda_en_la_bitacora_con_quien_y_por_que(self):
+        cambio = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.EN_REVISION, self.analista, "  Se toma para revisión.  "
+        )
+        self.assertEqual(cambio.estado_anterior, EstadoRequerimiento.RADICADO)
+        self.assertEqual(cambio.estado_nuevo, EstadoRequerimiento.EN_REVISION)
+        self.assertEqual(cambio.usuario, self.analista)
+        # La observación se guarda sin espacios sobrantes.
+        self.assertEqual(cambio.observacion, "Se toma para revisión.")
+
+    def test_no_se_puede_saltar_pasos(self):
+        # De radicado no se cierra directo: primero hay que revisar y cotizar.
+        with self.assertRaisesMessage(TransicionNoPermitidaError, "no puede pasar a «Cerrado»"):
+            self.requerimiento.cambiar_estado(EstadoRequerimiento.CERRADO, self.analista)
+
+    def test_una_transicion_rechazada_no_toca_nada(self):
+        with self.assertRaises(TransicionNoPermitidaError):
+            self.requerimiento.cambiar_estado(EstadoRequerimiento.CERRADO, self.analista)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertEqual(self.requerimiento.cambios_estado.count(), 0)
+
+    def test_de_cotizacion_se_puede_volver_a_revision(self):
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, self.analista)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.EN_REVISION)
+
+    def test_cerrado_es_definitivo(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        self.assertEqual(self.requerimiento.estados_siguientes(), ())
+
+    def test_se_valida_contra_la_base_de_datos_y_no_contra_la_memoria(self):
+        # Dos analistas con la ficha abierta: el segundo trae un estado viejo en
+        # memoria y su cambio no debe pisar el del primero.
+        copia_vieja = Requerimiento.objects.get(pk=self.requerimiento.pk)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+
+        with self.assertRaises(TransicionNoPermitidaError):
+            copia_vieja.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.assertEqual(self.requerimiento.cambios_estado.count(), 1)
+
+    def test_un_estado_que_no_existe_se_rechaza_con_un_mensaje_claro(self):
+        with self.assertRaisesMessage(TransicionNoPermitidaError, "«anulado»"):
+            self.requerimiento.cambiar_estado("anulado", self.analista)
+
+
+class CambiarEstadoVistaTests(VistaTestCase):
+    """HU-23: el analista cambia el estado desde la ficha."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.requerimiento = crear_requerimiento()
+        self.url = reverse("requerimientos:cambiar_estado", args=[self.requerimiento.consecutivo])
+        self.ficha = reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+
+    def test_el_analista_pasa_el_requerimiento_a_revision(self):
+        respuesta = self.client.post(
+            self.url, {"estado": EstadoRequerimiento.EN_REVISION, "observacion": "Lo tomo yo."}
+        )
+
+        self.assertRedirects(respuesta, self.ficha)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.EN_REVISION)
+        cambio = self.requerimiento.cambios_estado.get()
+        self.assertEqual((cambio.usuario, cambio.observacion), (self.usuario, "Lo tomo yo."))
+
+    def test_avisa_el_estado_nuevo_al_volver_a_la_ficha(self):
+        respuesta = self.client.post(
+            self.url, {"estado": EstadoRequerimiento.EN_REVISION}, follow=True
+        )
+        self.assertContains(respuesta, "pasó a «En revisión»")
+
+    def test_un_cambio_que_ya_no_aplica_se_rechaza_sin_tocar_nada(self):
+        # Botón de una ficha vieja: ese estado ya no es un siguiente válido.
+        respuesta = self.client.post(self.url, {"estado": EstadoRequerimiento.CERRADO}, follow=True)
+        self.assertContains(respuesta, "ya no aplica al estado actual")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_si_el_estado_cambio_entre_la_validacion_y_el_guardado_se_avisa(self):
+        # El formulario se valida con el estado que había al cargar; si otro
+        # analista lo mueve justo antes de guardar, el modelo lo detiene.
+        with mock.patch.object(
+            Requerimiento,
+            "cambiar_estado",
+            side_effect=TransicionNoPermitidaError("Otro analista ya lo movió."),
+        ):
+            respuesta = self.client.post(
+                self.url, {"estado": EstadoRequerimiento.EN_REVISION}, follow=True
+            )
+        self.assertContains(respuesta, "Otro analista ya lo movió.")
+
+    def test_el_solicitante_no_puede_cambiar_estados(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        respuesta = otro.post(self.url, {"estado": EstadoRequerimiento.EN_REVISION})
+        self.assertEqual(respuesta.status_code, 403)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_solo_acepta_post(self):
+        # Un enlace abierto sin querer no puede mover un requerimiento.
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_un_consecutivo_que_no_existe_responde_404(self):
+        url = reverse("requerimientos:cambiar_estado", args=["REQ-1999-0001"])
+        self.assertEqual(self.client.post(url, {"estado": "revision"}).status_code, 404)
+
+    def test_la_ficha_ofrece_solo_los_estados_siguientes(self):
+        respuesta = self.client.get(self.ficha)
+        self.assertContains(respuesta, 'value="revision"')
+        self.assertNotContains(respuesta, 'value="cerrado"')
+        self.assertNotContains(respuesta, 'value="cotizacion"')
+
+    def test_la_ficha_muestra_la_bitacora_con_la_observacion(self):
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.EN_REVISION, self.usuario, "Se pidió foto del daño."
+        )
+        respuesta = self.client.get(self.ficha)
+        self.assertContains(respuesta, 'id="bitacora"')
+        self.assertContains(respuesta, "Se pidió foto del daño.")
+        self.assertContains(respuesta, "Ana Gómez")
+
+    def test_un_requerimiento_cerrado_ya_no_ofrece_cambios(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.usuario)
+        respuesta = self.client.get(self.ficha)
+        self.assertNotContains(respuesta, 'id="form-cambio-estado"')
+        self.assertContains(respuesta, "ya no admite cambios de estado")
+
+
+class EstadoEnListadosTests(VistaTestCase):
+    """HU-23: el estado se ve en la bandeja y en «mis requerimientos»."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.radicado = crear_requerimiento(creado_por=self.usuario)
+        self.en_revision = crear_requerimiento(creado_por=self.usuario)
+        self.en_revision.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.usuario)
+
+    def test_la_bandeja_filtra_por_estado(self):
+        respuesta = self.client.get(
+            reverse("requerimientos:bandeja"), {"estado": EstadoRequerimiento.EN_REVISION}
+        )
+        self.assertEqual(list(respuesta.context["requerimientos"]), [self.en_revision])
+
+    def test_un_estado_invalido_en_la_url_no_deja_la_bandeja_en_blanco(self):
+        respuesta = self.client.get(reverse("requerimientos:bandeja"), {"estado": "anulado"})
+        self.assertEqual(len(respuesta.context["requerimientos"]), 2)
+
+    def test_la_bandeja_muestra_el_estado_de_cada_uno(self):
+        respuesta = self.client.get(reverse("requerimientos:bandeja"))
+        self.assertContains(respuesta, 'class="estado estado-revision"')
+        self.assertContains(respuesta, 'class="estado estado-radicado"')
+
+    def test_el_solicitante_ve_en_que_va_lo_suyo(self):
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertContains(respuesta, "En revisión")
+        self.assertContains(respuesta, "Radicado")
+
+
+# --- HU-24: devolución con observaciones ------------------------------------
+
+OBSERVACION_VALIDA = "Falta la referencia exacta del manómetro y una foto de la placa."
+
+
+def requerimiento_con_items(creado_por, descripciones=("Manómetro", "Termómetro", "Cronómetro")):
+    """Requerimiento con varios ítems numerados, para probar la corrección."""
+    requerimiento = crear_requerimiento(creado_por=creado_por)
+    unidad, _ = UnidadMedida.objects.get_or_create(codigo="UND", defaults={"nombre": "Unidad"})
+    for numero, descripcion in enumerate(descripciones, start=1):
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=numero,
+            cantidad=numero,
+            unidad_medida=unidad,
+            descripcion=descripcion,
+        )
+    return requerimiento
+
+
+def datos_correccion(requerimiento, **cambios):
+    """POST de la pantalla de corrección, con lo que el requerimiento ya tiene."""
+    items = list(requerimiento.items.order_by("numero"))
+    datos = {
+        "solicitante": requerimiento.solicitante,
+        "area": requerimiento.area_id,
+        "centro_costo": requerimiento.centro_costo_id,
+        "justificacion": requerimiento.justificacion,
+        "prioridad": requerimiento.prioridad_id,
+        "fecha_requerida": requerimiento.fecha_requerida.isoformat(),
+        "items-TOTAL_FORMS": str(len(items)),
+        "items-INITIAL_FORMS": str(len(items)),
+        "items-MIN_NUM_FORMS": "1",
+        "items-MAX_NUM_FORMS": "1000",
+    }
+    for indice, item in enumerate(items):
+        datos.update(
+            {
+                f"items-{indice}-id": item.pk,
+                f"items-{indice}-cantidad": item.cantidad,
+                f"items-{indice}-unidad_medida": item.unidad_medida_id,
+                f"items-{indice}-descripcion": item.descripcion,
+            }
+        )
+    datos.update(cambios)
+    return datos
+
+
+class DevolucionModeloTests(TestCase):
+    """HU-24: reglas de la devolución, sin pasar por las vistas."""
+
+    def setUp(self):
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = crear_requerimiento()
+
+    def test_se_devuelve_con_una_observacion(self):
+        cambio = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(cambio.observacion, OBSERVACION_VALIDA)
+        self.assertEqual(self.requerimiento.ultima_devolucion, cambio)
+
+    def test_no_se_devuelve_sin_decir_que_falta(self):
+        for observacion in ("", "   ", "falta"):
+            with (
+                self.subTest(observacion=observacion),
+                self.assertRaisesMessage(TransicionNoPermitidaError, "explica qué falta"),
+            ):
+                self.requerimiento.cambiar_estado(
+                    EstadoRequerimiento.DEVUELTO, self.analista, observacion
+                )
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_se_puede_devolver_en_revision_y_en_cotizacion(self):
+        for antes in (EstadoRequerimiento.EN_REVISION, EstadoRequerimiento.EN_COTIZACION):
+            with self.subTest(desde=antes):
+                requerimiento = crear_requerimiento()
+                requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+                if antes == EstadoRequerimiento.EN_COTIZACION:
+                    requerimiento.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, self.analista)
+                requerimiento.cambiar_estado(
+                    EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+                )
+                self.assertEqual(requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_lo_cerrado_ya_no_se_devuelve(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        with self.assertRaises(TransicionNoPermitidaError):
+            self.requerimiento.cambiar_estado(
+                EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+            )
+
+    def test_de_devuelto_solo_se_sale_volviendo_a_radicado(self):
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.assertEqual(self.requerimiento.estados_siguientes(), (EstadoRequerimiento.RADICADO,))
+
+    def test_la_ultima_devolucion_es_la_mas_reciente(self):
+        solicitante = crear_usuario("ana.gomez", perfil=perfiles.SOLICITANTE)
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, "Primera devolución, falta la foto."
+        )
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.RADICADO, solicitante)
+        segunda = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, "Segunda devolución, la foto está borrosa."
+        )
+        self.assertEqual(self.requerimiento.ultima_devolucion, segunda)
+
+    def test_los_botones_de_estado_no_ofrecen_devolver(self):
+        # Devolver tiene su propio formulario, que exige la observación.
+        formulario = CambioEstadoForm(requerimiento=self.requerimiento)
+        opciones = [valor for valor, _ in formulario.fields["estado"].choices]
+        self.assertNotIn(EstadoRequerimiento.DEVUELTO, opciones)
+
+    def test_mientras_esta_devuelto_compras_no_lo_mueve(self):
+        # Lo saca el solicitante cuando corrige, no compras.
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        formulario = CambioEstadoForm(requerimiento=self.requerimiento)
+        self.assertEqual(formulario.fields["estado"].choices, [])
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class DevolverVistaTests(VistaTestCase):
+    """HU-24: el analista devuelve el requerimiento desde la ficha."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.solicitante = crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE)
+        self.solicitante.email = "luis.mesa@coinogas.com"
+        self.solicitante.save()
+        self.requerimiento = crear_requerimiento(creado_por=self.solicitante)
+        self.url = reverse("requerimientos:devolver", args=[self.requerimiento.consecutivo])
+        self.ficha = reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+
+    def _devolver(self, observacion=OBSERVACION_VALIDA, **opciones):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, {"devolucion-observacion": observacion}, **opciones)
+
+    def test_el_analista_devuelve_con_su_observacion(self):
+        respuesta = self._devolver()
+
+        self.assertRedirects(respuesta, self.ficha)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        cambio = self.requerimiento.ultima_devolucion
+        self.assertEqual((cambio.usuario, cambio.observacion), (self.usuario, OBSERVACION_VALIDA))
+
+    def test_al_solicitante_le_llega_la_observacion_y_el_enlace_para_corregir(self):
+        self._devolver()
+
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ["luis.mesa@coinogas.com"])
+        self.assertIn(self.requerimiento.consecutivo, correo.subject)
+        self.assertIn(OBSERVACION_VALIDA, correo.body)
+        enlace = reverse("requerimientos:corregir", args=[self.requerimiento.consecutivo])
+        self.assertIn(f"http://testserver{enlace}", correo.body)
+        # Y la versión HTML, para los clientes de correo que la muestran.
+        self.assertIn(OBSERVACION_VALIDA, correo.alternatives[0][0])
+
+    def test_sin_observacion_no_se_devuelve_y_se_conserva_lo_escrito(self):
+        respuesta = self._devolver("corto")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Explica un poco más qué falta")
+        # Lo que alcanzó a escribir vuelve en el campo, no se pierde.
+        self.assertContains(respuesta, "corto</textarea>")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_una_observacion_rellena_de_espacios_no_cuenta(self):
+        self._devolver("      corto      ")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_lo_cerrado_no_se_puede_devolver(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.usuario)
+
+        respuesta = self._devolver(follow=True)
+
+        self.assertContains(respuesta, "no puede pasar a «Devuelto»")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_sin_correo_registrado_se_devuelve_igual(self):
+        self.solicitante.email = ""
+        self.solicitante.save()
+        with self.assertLogs("requerimientos.notificaciones", level="WARNING"):
+            self._devolver()
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_si_el_servidor_de_correo_falla_la_devolucion_queda_hecha(self):
+        smtp_caido = mock.patch.object(
+            EmailMultiAlternatives, "send", side_effect=smtplib.SMTPException("caído")
+        )
+        with smtp_caido, self.assertLogs("requerimientos.notificaciones", level="ERROR"):
+            self._devolver()
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_el_solicitante_no_puede_devolver(self):
+        otro = Client()
+        otro.force_login(self.solicitante)
+        respuesta = otro.post(self.url, {"devolucion-observacion": OBSERVACION_VALIDA})
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_la_ficha_ofrece_devolver_y_luego_dice_que_espera_correccion(self):
+        self.assertContains(self.client.get(self.ficha), 'id="form-devolver"')
+        self._devolver()
+        respuesta = self.client.get(self.ficha)
+        self.assertNotContains(respuesta, 'id="form-devolver"')
+        self.assertContains(respuesta, 'id="esperando-correccion"')
+        self.assertContains(respuesta, OBSERVACION_VALIDA)
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class CorregirRequerimientoTests(MediaTemporalMixin, VistaTestCase):
+    """HU-24: el solicitante corrige lo devuelto y lo reenvía."""
+
+    def setUp(self):
+        super().setUp()
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = requerimiento_con_items(self.usuario)
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.url = reverse("requerimientos:corregir", args=[self.requerimiento.consecutivo])
+
+    def _reenviar(self, datos):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, datos)
+
+    def test_la_pantalla_muestra_lo_que_pidio_compras_y_lo_ya_diligenciado(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'id="observacion-devolucion"')
+        self.assertContains(respuesta, OBSERVACION_VALIDA)
+        self.assertContains(respuesta, "Reenviar a compras")
+        # Precargado con lo que ya tenía, no en blanco.
+        self.assertContains(respuesta, self.requerimiento.justificacion)
+        self.assertContains(respuesta, "Termómetro")
+        # En corrección no hay borrador: el requerimiento ya existe.
+        self.assertNotContains(respuesta, 'id="guardar-borrador"')
+
+    def test_la_fecha_requerida_llega_en_el_formato_del_selector(self):
+        # Regresión: el selector de fecha solo entiende AAAA-MM-DD; en formato
+        # local (dd/mm/aaaa) el navegador lo dejaba en blanco al corregir.
+        respuesta = self.client.get(self.url)
+        fecha = self.requerimiento.fecha_requerida.isoformat()
+        self.assertContains(respuesta, f'value="{fecha}"')
+
+    def test_reenviar_guarda_las_correcciones_y_vuelve_a_radicado(self):
+        respuesta = self._reenviar(
+            datos_correccion(
+                self.requerimiento,
+                justificacion="Manómetro de glicerina, referencia WIKA 213.53, rosca 1/4.",
+                respuesta="Agregué la referencia exacta.",
+            )
+        )
+
+        self.assertRedirects(respuesta, reverse("requerimientos:mios"))
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertIn("WIKA 213.53", self.requerimiento.justificacion)
+        reenvio = self.requerimiento.cambios_estado.last()
+        self.assertEqual(reenvio.estado_anterior, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(reenvio.observacion, "Agregué la referencia exacta.")
+        self.assertEqual(reenvio.usuario, self.usuario)
+
+    def test_conserva_el_consecutivo(self):
+        consecutivo = self.requerimiento.consecutivo
+        self._reenviar(datos_correccion(self.requerimiento))
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.consecutivo, consecutivo)
+        self.assertEqual(Requerimiento.objects.count(), 1)
+
+    def test_compras_se_entera_de_que_volvio_corregido(self):
+        self._reenviar(datos_correccion(self.requerimiento, respuesta="Ya está la foto."))
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ["compras@coinogas.com"])
+        self.assertIn("corregido y reenviado", correo.subject)
+        self.assertIn("Ya está la foto.", correo.body)
+
+    def test_editar_solo_el_tercer_item_no_choca_ni_reordena(self):
+        # Regresión: los ítems nuevos se numeraban desde 1 y, al editar, el
+        # tercero chocaba con el primero en la restricción de unicidad.
+        datos = datos_correccion(
+            self.requerimiento, **{"items-2-descripcion": "Cronómetro digital"}
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("numero", "descripcion")),
+            [(1, "Manómetro"), (2, "Termómetro"), (3, "Cronómetro digital")],
+        )
+
+    def test_quitar_un_item_y_agregar_otro_deja_la_numeracion_consecutiva(self):
+        datos = datos_correccion(self.requerimiento)
+        datos["items-1-DELETE"] = "on"
+        unidad = UnidadMedida.objects.get(codigo="UND")
+        datos.update(
+            {
+                "items-TOTAL_FORMS": "4",
+                "items-3-id": "",
+                "items-3-cantidad": "2",
+                "items-3-unidad_medida": unidad.pk,
+                "items-3-descripcion": "Barómetro",
+            }
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("numero", "descripcion")),
+            [(1, "Manómetro"), (2, "Cronómetro"), (3, "Barómetro")],
+        )
+
+    def test_los_proveedores_se_reemplazan_con_lo_que_quedo_en_pantalla(self):
+        ProveedorSugerido.objects.create(
+            requerimiento=self.requerimiento, orden=1, nombre="Viejo", telefono="6044441234"
+        )
+        datos = datos_correccion(
+            self.requerimiento,
+            proveedor_1_nombre="Instrumentos Andinos",
+            proveedor_1_telefono="300 123 4567",
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.proveedores_sugeridos.values_list("nombre", flat=True)),
+            ["Instrumentos Andinos"],
+        )
+
+    def test_se_puede_agregar_la_foto_que_faltaba_y_quitar_la_que_sobraba(self):
+        vieja = reglas_adjuntos.guardar(
+            self.requerimiento, [(archivo("borrosa.jpg"), Adjunto.Tipo.FOTO)], self.usuario
+        )[0]
+        datos = datos_correccion(
+            self.requerimiento,
+            quitar=[vieja.pk],
+            archivos=[archivo("placa-nitida.jpg")],
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.adjuntos.values_list("nombre_original", flat=True)),
+            ["placa-nitida.jpg"],
+        )
+
+    def test_el_maximo_de_adjuntos_cuenta_lo_que_ya_tenia(self):
+        reglas_adjuntos.guardar(
+            self.requerimiento,
+            [
+                (archivo(f"foto-{n}.jpg"), Adjunto.Tipo.FOTO)
+                for n in range(reglas_adjuntos.MAX_ADJUNTOS)
+            ],
+            self.usuario,
+        )
+        respuesta = self._reenviar(
+            datos_correccion(self.requerimiento, archivos=[archivo("una-mas.jpg")])
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "puedes sumar 0 más")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_con_errores_no_reenvia_ni_cambia_nada(self):
+        respuesta = self._reenviar(datos_correccion(self.requerimiento, justificacion=""))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "No se pudo reenviar el requerimiento.")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_un_requerimiento_ajeno_no_se_puede_corregir(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(otro.get(self.url).status_code, 404)
+
+    def test_lo_que_no_esta_devuelto_no_se_corrige(self):
+        self._reenviar(datos_correccion(self.requerimiento))
+        # Ya se reenvió: volver a la pantalla de corrección no tiene sentido.
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_sin_sesion_manda_al_ingreso(self):
+        anonimo = Client()
+        respuesta = anonimo.get(self.url)
+        self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={self.url}")
+
+    def test_mis_requerimientos_avisa_lo_que_espera_correccion(self):
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertContains(respuesta, 'id="aviso-devueltos"')
+        self.assertContains(respuesta, "necesita tu corrección")
+        self.assertContains(respuesta, self.url)
+
+    def test_sin_devueltos_no_hay_aviso(self):
+        self._reenviar(datos_correccion(self.requerimiento))
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertNotContains(respuesta, 'id="aviso-devueltos"')
+
+
+class NotificacionReenvioTests(TestCase):
+    """HU-24: casos del aviso a compras que no pasan por la vista."""
+
+    def test_sin_buzones_de_compras_no_se_envia_y_se_registra(self):
+        requerimiento = crear_requerimiento()
+        cambio = CambioEstado(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.DEVUELTO,
+            estado_nuevo=EstadoRequerimiento.RADICADO,
+        )
+        with (
+            override_settings(COMPRAS_EMAILS=[]),
+            self.assertLogs("requerimientos.notificaciones", level="WARNING"),
+        ):
+            self.assertFalse(notificaciones.notificar_reenvio(requerimiento, cambio, "http://x/"))
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class FichaIdsUnicosTests(VistaTestCase):
+    """HU-24: la ficha no repite ids aunque convivan dos formularios con observación."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def test_cada_campo_de_observacion_tiene_su_propio_id(self):
+        requerimiento = crear_requerimiento()
+        html = self.client.get(
+            reverse("requerimientos:ficha", args=[requerimiento.consecutivo])
+        ).content.decode()
+        ids = re.findall(r'\bid="([^"]+)"', html)
+        repetidos = {valor for valor in ids if ids.count(valor) > 1}
+        self.assertEqual(repetidos, set())

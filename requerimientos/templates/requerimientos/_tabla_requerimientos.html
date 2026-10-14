@@ -8,6 +8,7 @@
     <thead>
       <tr>
         <th style="width: 10rem;">Consecutivo</th>
+        <th style="width: 8rem;">Estado</th>
         <th style="width: 7rem;">Radicado</th>
         {% if mostrar_solicitante %}<th>Solicitante</th>{% endif %}
         <th>Área o proyecto</th>
@@ -24,11 +25,16 @@
             {% if enlazar_ficha %}
               <a href="{% url 'requerimientos:ficha' requerimiento.consecutivo %}"
                  class="placa clara">{{ requerimiento.consecutivo }}</a>
+            {% elif enlazar_correccion and requerimiento.estado == "devuelto" %}
+              {# HU-24: lo devuelto lleva directo a corregirlo. #}
+              <a href="{% url 'requerimientos:corregir' requerimiento.consecutivo %}"
+                 class="placa clara">{{ requerimiento.consecutivo }}</a>
             {% else %}
               <a href="{% url 'requerimientos:confirmacion' requerimiento.consecutivo %}"
                  class="placa clara">{{ requerimiento.consecutivo }}</a>
             {% endif %}
           </td>
+          <td>{% include "requerimientos/_estado.html" %}</td>
           <td class="dato">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</td>
           {% if mostrar_solicitante %}<td>{{ requerimiento.solicitante }}</td>{% endif %}
           <td>{{ requerimiento.area }}</td>
@@ -39,7 +45,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="8" class="text-center text-muted py-4">{{ vacio }}</td>
+          <td colspan="9" class="text-center text-muted py-4">{{ vacio }}</td>
         </tr>
       {% endfor %}
     </tbody>

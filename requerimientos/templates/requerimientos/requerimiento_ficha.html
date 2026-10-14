@@ -10,12 +10,109 @@
     <h1 class="d-flex align-items-center gap-3 flex-wrap">
       <span class="placa" id="consecutivo">{{ requerimiento.consecutivo }}</span>
       <span class="chip chip-{{ requerimiento.prioridad.nombre|lower }}">{{ requerimiento.prioridad }}</span>
+      {% include "requerimientos/_estado.html" %}
     </h1>
     <p class="sub">Todo lo radicado, para evaluarlo sin pedir información adicional.</p>
   </div>
 
   <div class="mb-3">
     <a href="{% url 'requerimientos:bandeja' %}" class="btn btn-outline-secondary btn-sm">← Volver a la bandeja</a>
+  </div>
+
+  {# HU-23: estado actual, qué sigue y la historia del requerimiento. #}
+  <div class="card mb-4" id="seguimiento">
+    <div class="card-header">
+      <h2>Estado y seguimiento</h2>
+      {% include "requerimientos/_estado.html" %}
+    </div>
+    <div class="card-body">
+
+      {% if cambio_estado.fields.estado.choices %}
+        <form method="post" action="{% url 'requerimientos:cambiar_estado' requerimiento.consecutivo %}"
+              id="form-cambio-estado">
+          {% csrf_token %}
+          <label for="{{ cambio_estado.observacion.id_for_label }}" class="form-label">
+            {{ cambio_estado.observacion.label }}
+          </label>
+          {{ cambio_estado.observacion }}
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            {# Un botón por cada estado al que se puede pasar: lo que no aplica no aparece. #}
+            {% for valor, etiqueta in cambio_estado.fields.estado.choices %}
+              <button type="submit" name="estado" value="{{ valor }}"
+                      class="btn btn-sm {% if forloop.last %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                Pasar a «{{ etiqueta }}»
+              </button>
+            {% endfor %}
+          </div>
+        </form>
+      {% elif requerimiento.estado == "devuelto" %}
+        {# HU-24: mientras está devuelto, la pelota está del lado del solicitante. #}
+        <p class="text-muted mb-0" id="esperando-correccion">
+          Devuelto al solicitante. Vuelve a la bandeja como «Radicado» cuando él
+          lo corrija y lo reenvíe.
+        </p>
+      {% else %}
+        <p class="text-muted mb-0" id="sin-transiciones">
+          {% if requerimiento.estado == "cerrado" %}
+            Este requerimiento está cerrado: ya no admite cambios de estado.
+          {% else %}
+            Desde este estado no hay cambios que hacer por ahora.
+          {% endif %}
+        </p>
+      {% endif %}
+
+      {% if puede_devolverse %}
+        {# HU-24: devolver exige decir qué falta; por eso va aparte y plegado. #}
+        <details class="devolver mt-3" id="bloque-devolver"{% if devolucion.errors %} open{% endif %}>
+          <summary>Devolver al solicitante</summary>
+          <form method="post" action="{% url 'requerimientos:devolver' requerimiento.consecutivo %}"
+                id="form-devolver" class="mt-2">
+            {% csrf_token %}
+            <label for="{{ devolucion.observacion.id_for_label }}" class="form-label">
+              {{ devolucion.observacion.label }}
+            </label>
+            {{ devolucion.observacion }}
+            {% for error in devolucion.observacion.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+            <div class="form-text">
+              El solicitante recibe esta observación por correo, con el enlace para corregir.
+            </div>
+            <button type="submit" class="btn btn-outline-danger btn-sm mt-2" id="devolver">
+              Devolver al solicitante
+            </button>
+          </form>
+        </details>
+      {% endif %}
+
+      <h3 class="bitacora-titulo">Historia</h3>
+      <ol class="bitacora" id="bitacora">
+        {# La radicación no es un cambio de estado, pero es donde empieza la historia. #}
+        <li class="bitacora-evento">
+          <span class="bitacora-fecha">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</span>
+          <span class="bitacora-que">
+            Radicado
+            {% if requerimiento.creado_por %}
+              por {{ requerimiento.creado_por.get_full_name|default:requerimiento.creado_por.get_username }}
+            {% endif %}
+          </span>
+        </li>
+        {% for cambio in requerimiento.cambios_estado.all %}
+          <li class="bitacora-evento bitacora-{{ cambio.estado_nuevo }}">
+            <span class="bitacora-fecha">{{ cambio.fecha|date:"d/m/Y H:i" }}</span>
+            <span class="bitacora-que">
+              {{ cambio.get_estado_anterior_display }} → <strong>{{ cambio.get_estado_nuevo_display }}</strong>
+              {% if cambio.usuario %}
+                <span class="bitacora-quien">· {{ cambio.usuario.get_full_name|default:cambio.usuario.get_username }}</span>
+              {% endif %}
+            </span>
+            {% if cambio.observacion %}
+              <span class="bitacora-observacion">{{ cambio.observacion|linebreaksbr }}</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
   </div>
 
   <div class="card mb-4">
@@ -166,23 +263,21 @@
     </div>
   </div>
 
-  {% if requerimiento.adjuntos.exists %}
-    <div class="card mb-4" id="adjuntos">
-      <div class="card-header"><h2>Adjuntos</h2></div>
-      <div class="card-body">
-        <div class="row g-3">
-          {% for adjunto in requerimiento.adjuntos.all %}
-            <div class="col-6 col-md-3">
-              <a href="{{ adjunto.archivo.url }}" target="_blank" rel="noopener"
-                 class="d-block text-decoration-none">
-                {{ adjunto }}
-              </a>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
+  {# HU-11: los adjuntos pasan por la vista de descarga, que revisa permisos; #}
+  {# por eso no se enlaza el archivo directo. #}
+  <div class="card mb-4" id="adjuntos">
+    <div class="card-header">
+      <h2>Fotografías y documentos de soporte</h2>
+      <span class="mini">{{ requerimiento.adjuntos.all|length }} adjunto{{ requerimiento.adjuntos.all|length|pluralize }}</span>
     </div>
-  {% endif %}
+    <div class="card-body">
+      {% if requerimiento.adjuntos.all %}
+        {% include "requerimientos/_lista_adjuntos.html" with adjuntos=requerimiento.adjuntos.all %}
+      {% else %}
+        <p class="text-muted mb-0">El solicitante no adjuntó archivos.</p>
+      {% endif %}
+    </div>
+  </div>
 
 </div>
 {% endblock %}

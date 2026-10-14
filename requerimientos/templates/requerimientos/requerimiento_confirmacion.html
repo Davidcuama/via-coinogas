@@ -95,6 +95,19 @@
     </p>
   {% endif %}
 
+  {# HU-11: lo que quedó adjunto, para que el solicitante confirme que subió bien. #}
+  {% if requerimiento.adjuntos.all %}
+    <div class="card mb-4" id="adjuntos">
+      <div class="card-header">
+        <h2>Adjuntos</h2>
+        <span class="mini">{{ requerimiento.adjuntos.all|length }} archivo{{ requerimiento.adjuntos.all|length|pluralize }}</span>
+      </div>
+      <div class="card-body">
+        {% include "requerimientos/_lista_adjuntos.html" with adjuntos=requerimiento.adjuntos.all %}
+      </div>
+    </div>
+  {% endif %}
+
   <a href="{% url 'requerimientos:crear' %}" class="btn btn-primary">Radicar otro requerimiento</a>
 </div>
 {% endblock %}

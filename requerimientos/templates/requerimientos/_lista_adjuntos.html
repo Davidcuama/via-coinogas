@@ -1,0 +1,28 @@
+{% comment %}
+  Adjuntos de un requerimiento (HU-11). Lo usan la ficha de compras, la
+  confirmación de radicación y la corrección de un requerimiento devuelto.
+
+  Cada enlace apunta a la vista de descarga, no al archivo directo: esa vista
+  revisa que quien lo pide tenga derecho a verlo. Las fotos se muestran como
+  miniatura con esa misma ruta, así que la regla aplica también a la imagen.
+{% endcomment %}
+{% load static %}
+<div class="adjuntos-grilla">
+  {% for adjunto in adjuntos %}
+    <a href="{% url 'requerimientos:adjunto' adjunto.pk %}" target="_blank" rel="noopener"
+       class="adjunto-tarjeta" title="{{ adjunto.nombre_original }}">
+      {% if adjunto.tipo == "foto" %}
+        <span class="adjunto-vista">
+          <img src="{% url 'requerimientos:adjunto' adjunto.pk %}" alt="{{ adjunto.nombre_original }}"
+               loading="lazy">
+        </span>
+      {% else %}
+        <span class="adjunto-vista adjunto-documento" aria-hidden="true">
+          {{ adjunto.extension }}
+        </span>
+      {% endif %}
+      <span class="adjunto-nombre">{{ adjunto.nombre_original }}</span>
+      <span class="adjunto-peso">{{ adjunto.get_tipo_display }} · {{ adjunto.tamano|filesizeformat }}</span>
+    </a>
+  {% endfor %}
+</div>

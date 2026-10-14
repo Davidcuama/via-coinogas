@@ -1,0 +1,19 @@
+{% autoescape off %}Tu requerimiento {{ requerimiento.consecutivo }} fue devuelto por el área de compras.
+
+Necesita una corrección antes de seguir su trámite. Esto fue lo que te
+pidieron:
+
+{{ cambio.observacion }}
+
+{% if cambio.usuario %}Lo devolvió: {{ cambio.usuario.get_full_name|default:cambio.usuario.get_username }}
+{% endif %}Fecha: {{ cambio.fecha|date:"d/m/Y H:i" }}
+
+Corrígelo y reenvíalo desde aquí:
+{{ enlace }}
+
+Cuando lo reenvíes vuelve a la bandeja de compras con el mismo consecutivo.
+
+--
+VIA Compras - Coinogas
+Mensaje automático, no responder a este correo.
+{% endautoescape %}
