@@ -2735,3 +2735,112 @@ class ProveedoresSugeridosTests(VistaTestCase):
         )
         with self.assertRaises(ValidationError):
             proveedor.full_clean()
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class ProductosSustitutosTests(VistaTestCase):
+    """HU-14: el solicitante indica si existen productos o servicios sustitutos.
+
+    Caso de prueba CP-S2-07 de la Wiki.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.usuario.email = "ana.gomez@coinogas.com"
+        self.usuario.save()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, **extra):
+        return {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro.pk,
+            "justificacion": "Cambio de manómetros de la línea 2.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items("Manómetro de glicerina 0-100 psi"),
+            **extra,
+        }
+
+    def _radicar(self, **extra):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, self._datos(**extra))
+
+    # --- Happy path ---
+
+    def test_el_formulario_pregunta_si_hay_sustitutos(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'name="hay_sustitutos"')
+        self.assertContains(respuesta, 'name="sustitutos"')
+
+    def test_por_defecto_no_hay_sustitutos(self):
+        self._radicar()
+        requerimiento = Requerimiento.objects.get()
+        self.assertFalse(requerimiento.hay_sustitutos)
+        self.assertEqual(requerimiento.sustitutos, "")
+
+    def test_radicar_con_sustitutos_guarda_cuales(self):
+        self._radicar(hay_sustitutos="on", sustitutos="Manómetro WIKA 213.53 o equivalente.")
+        requerimiento = Requerimiento.objects.get()
+        self.assertTrue(requerimiento.hay_sustitutos)
+        self.assertEqual(requerimiento.sustitutos, "Manómetro WIKA 213.53 o equivalente.")
+
+    def test_la_ficha_y_el_correo_muestran_los_sustitutos(self):
+        self._radicar(hay_sustitutos="on", sustitutos="Manómetro WIKA 213.53 o equivalente.")
+        aviso = next(m for m in mail.outbox if "compras@coinogas.com" in m.to)
+        self.assertIn("Manómetro WIKA 213.53 o equivalente.", aviso.body)
+
+        analista = Client()
+        analista.force_login(crear_usuario("compras", "Carla", "Ruiz", perfiles.ANALISTA))
+        consecutivo = Requerimiento.objects.get().consecutivo
+        respuesta = analista.get(reverse("requerimientos:ficha", args=[consecutivo]))
+        self.assertContains(respuesta, "Manómetro WIKA 213.53 o equivalente.")
+
+    def test_la_ficha_aclara_cuando_no_hay_sustitutos(self):
+        self._radicar()
+        analista = Client()
+        analista.force_login(crear_usuario("compras", "Carla", "Ruiz", perfiles.ANALISTA))
+        consecutivo = Requerimiento.objects.get().consecutivo
+        respuesta = analista.get(reverse("requerimientos:ficha", args=[consecutivo]))
+        self.assertContains(respuesta, "El solicitante indicó que no hay sustitutos.")
+
+    def test_el_borrador_conserva_la_respuesta(self):
+        self.client.post(
+            reverse("requerimientos:guardar_borrador"),
+            {"hay_sustitutos": "on", "sustitutos": "Alquiler del equipo"},
+        )
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "Alquiler del equipo")
+        self.assertTrue(respuesta.context["form"]["hay_sustitutos"].value())
+
+    # --- Flujo alterno ---
+
+    def test_marcar_que_hay_sustitutos_sin_decir_cuales_bloquea_la_radicacion(self):
+        respuesta = self._radicar(hay_sustitutos="on", sustitutos="   ")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Requerimiento.objects.exists())
+        self.assertContains(respuesta, "Indicaste que hay sustitutos: escribe cuáles")
+        self.assertContains(respuesta, "Productos o servicios sustitutos</li>")
+
+    def test_si_responde_que_no_se_descarta_lo_escrito(self):
+        self._radicar(sustitutos="Algo que escribió y luego desmarcó")
+        requerimiento = Requerimiento.objects.get()
+        self.assertFalse(requerimiento.hay_sustitutos)
+        self.assertEqual(requerimiento.sustitutos, "")
+
+    def test_el_modelo_tambien_exige_la_descripcion(self):
+        requerimiento = Requerimiento(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Prueba.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+            hay_sustitutos=True,
+        )
+        with self.assertRaises(ValidationError) as contexto:
+            requerimiento.full_clean()
+        self.assertIn("sustitutos", contexto.exception.message_dict)

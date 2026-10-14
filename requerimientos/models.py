@@ -13,6 +13,10 @@ JUSTIFICACION_MAX_LENGTH = 1000
 # el contacto formal, así que aquí se guardan como texto libre.
 MAX_PROVEEDORES_SUGERIDOS = 3
 
+MENSAJE_SUSTITUTOS_OBLIGATORIOS = (
+    "Indicaste que hay sustitutos: escribe cuáles para que compras los tenga en cuenta."
+)
+
 # HU-16: formato del consecutivo de radicación -> REQ-<año>-<número de 4 dígitos>.
 # El número reinicia cada año; el año garantiza que nunca se repita entre periodos.
 CONSECUTIVO_PREFIJO = "REQ"
@@ -185,6 +189,20 @@ class Requerimiento(models.Model):
     # --- Fecha requerida de recepción (HU-05) ---
     fecha_requerida = models.DateField("Fecha requerida de recepción")
 
+    # --- Alternativas o productos sustitutos (HU-14) ---
+    # La sección del ADM-F-22 se responde con un sí o un no. Por defecto es "no":
+    # lo excepcional es que el solicitante conozca una alternativa. Si responde
+    # que sí, tiene que decir cuál; un "sí" sin detalle no le sirve a compras.
+    hay_sustitutos = models.BooleanField(
+        "¿Existen productos o servicios sustitutos?",
+        default=False,
+    )
+    sustitutos = models.TextField(
+        "Productos o servicios sustitutos",
+        blank=True,
+        help_text="Qué alternativa sirve y en qué condiciones (marca, referencia, etc.).",
+    )
+
     class Meta:
         verbose_name = "Requerimiento"
         verbose_name_plural = "Requerimientos"
@@ -259,6 +277,10 @@ class Requerimiento(models.Model):
             errores["fecha_requerida"] = (
                 "La fecha requerida no puede ser anterior a la fecha de solicitud."
             )
+
+        # HU-14: si dice que hay sustitutos, debe describirlos.
+        if self.hay_sustitutos and not (self.sustitutos or "").strip():
+            errores["sustitutos"] = MENSAJE_SUSTITUTOS_OBLIGATORIOS
 
         if errores:
             raise ValidationError(errores)

@@ -22,6 +22,9 @@ Justificación:
 {% endif %}{% endfor %}
 Total estimado: {{ requerimiento.total_estimado|floatformat:2 }}{% if requerimiento.tiene_items_sin_precio %} (parcial: hay ítems sin precio de referencia){% endif %}
 
+Productos sustitutos: {% if requerimiento.hay_sustitutos %}
+{{ requerimiento.sustitutos }}{% else %}no hay.{% endif %}
+
 Proveedores sugeridos: {% for proveedor in requerimiento.proveedores_sugeridos.all %}
 {{ proveedor.orden }}. {{ proveedor.nombre }} - Tel. {{ proveedor.telefono }}{% if proveedor.observaciones %} ({{ proveedor.observaciones }}){% endif %}{% empty %}ninguno.{% endfor %}
 

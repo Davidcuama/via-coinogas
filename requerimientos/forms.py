@@ -6,6 +6,7 @@ from django.utils import timezone
 from .models import (
     JUSTIFICACION_MAX_LENGTH,
     MAX_PROVEEDORES_SUGERIDOS,
+    MENSAJE_SUSTITUTOS_OBLIGATORIOS,
     Area,
     Item,
     Prioridad,
@@ -50,6 +51,9 @@ class RequerimientoForm(forms.ModelForm):
             "justificacion",
             "prioridad",
             "fecha_requerida",
+            # HU-14: opcionales; `sustitutos` solo se exige si se marcó que hay.
+            "hay_sustitutos",
+            "sustitutos",
         ]
         widgets = {
             "solicitante": forms.TextInput(attrs={"class": "form-control"}),
@@ -67,6 +71,16 @@ class RequerimientoForm(forms.ModelForm):
             "prioridad": forms.Select(attrs={"class": "form-select"}),
             # HU-05: selector de fecha nativo del navegador.
             "fecha_requerida": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            # HU-14: la casilla muestra u oculta la descripción en el navegador.
+            "hay_sustitutos": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "sustitutos": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Ej. sirve también la referencia X de la marca Y, o un "
+                    "servicio de alquiler en lugar de la compra.",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -116,6 +130,18 @@ class RequerimientoForm(forms.ModelForm):
         if not texto.strip():
             raise forms.ValidationError("La justificación no puede quedar vacía.")
         return texto
+
+    def clean(self):
+        datos = super().clean()
+        # HU-14: un "sí, hay sustitutos" sin decir cuáles no le sirve a compras.
+        # Si responde que no, se descarta lo que hubiera escrito antes de
+        # desmarcar la casilla, para no guardar una alternativa que ya negó.
+        if datos.get("hay_sustitutos"):
+            if not (datos.get("sustitutos") or "").strip():
+                self.add_error("sustitutos", MENSAJE_SUSTITUTOS_OBLIGATORIOS)
+        else:
+            datos["sustitutos"] = ""
+        return datos
 
     def clean_fecha_requerida(self):
         fecha = self.cleaned_data.get("fecha_requerida")

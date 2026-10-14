@@ -73,6 +73,13 @@
     </p>
   {% endif %}
 
+  <p><strong>Productos sustitutos</strong></p>
+  {% if requerimiento.hay_sustitutos %}
+    <p>{{ requerimiento.sustitutos|linebreaksbr }}</p>
+  {% else %}
+    <p>El solicitante indicó que no hay sustitutos.</p>
+  {% endif %}
+
   <p><strong>Proveedores sugeridos</strong></p>
   {% if requerimiento.proveedores_sugeridos.all %}
     <ol>
