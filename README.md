@@ -79,6 +79,22 @@ python manage.py runserver
 por perfil e imprime sus contraseñas una sola vez: úsalas solo en desarrollo. Las áreas y los
 centros de costo se cargan desde `/admin`, porque dependen de la información real de Coinogas.
 
+### Datos de demostración
+
+Para tener con qué probar las pantallas de consulta y construir el tablero de indicadores
+(HU-30), `sembrar_demo` genera requerimientos repartidos entre varias áreas, las tres
+prioridades y varios meses:
+
+```bash
+python manage.py sembrar_demo --cantidad 40 --meses 6   # sembrar
+python manage.py sembrar_demo --limpiar                 # quitar lo sembrado
+```
+
+Solo corre con `DEBUG=True`: son datos falsos y no deben entrar por accidente a un entorno
+real. Las cuentas que crea llevan el prefijo `demo.`, que es lo que permite borrar después
+solo lo sembrado. Con `--semilla N` se obtiene siempre el mismo conjunto. Detalles en la
+[Wiki](../../wiki/Tablero-de-Indicadores).
+
 Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.
 
 Los casos de prueba funcionales del sprint están en **[TESTING.md](TESTING.md)**.
