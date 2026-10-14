@@ -14,13 +14,14 @@ from . import adjuntos as reglas_adjuntos
 from . import borradores, perfiles
 from .forms import (
     AdjuntosForm,
+    CambioEstadoForm,
     FiltroBandejaForm,
     ItemFormSet,
     ProveedoresSugeridosForm,
     RequerimientoForm,
     item_formset_desde_borrador,
 )
-from .models import Adjunto, Requerimiento
+from .models import Adjunto, Requerimiento, TransicionNoPermitidaError
 from .notificaciones import notificar_confirmacion_solicitante, notificar_radicacion
 
 
@@ -328,8 +329,62 @@ class FichaRequerimientoView(PerfilRequeridoMixin, DetailView):
             super()
             .get_queryset()
             .select_related("area", "centro_costo", "prioridad", "creado_por")
-            .prefetch_related("items__unidad_medida", "proveedores_sugeridos", "adjuntos")
+            .prefetch_related(
+                "items__unidad_medida",
+                "proveedores_sugeridos",
+                "adjuntos",
+                "cambios_estado__usuario",
+            )
         )
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        # HU-23: el cambio de estado se hace desde la propia ficha, que es
+        # donde el analista tiene todo para decidir.
+        contexto["cambio_estado"] = CambioEstadoForm(requerimiento=self.object)
+        return contexto
+
+
+class CambiarEstadoView(PerfilRequeridoMixin, View):
+    """Cambia el estado de un requerimiento desde su ficha (HU-23).
+
+    Solo por POST: un cambio de estado no puede dispararse con un enlace que
+    alguien abra sin querer. Vuelve siempre a la ficha, con el resultado como
+    aviso, para que el analista vea el estado nuevo y la bitácora actualizada.
+    """
+
+    perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
+
+    def post(self, request, consecutivo):
+        requerimiento = get_object_or_404(Requerimiento, consecutivo=consecutivo)
+        formulario = CambioEstadoForm(request.POST, requerimiento=requerimiento)
+        ficha = redirect("requerimientos:ficha", consecutivo=consecutivo)
+
+        if not formulario.is_valid():
+            # Casi siempre es una ficha abierta hace rato: otro analista ya movió
+            # el requerimiento y el botón que se pulsó ya no aplica.
+            messages.error(
+                request,
+                "Ese cambio ya no aplica al estado actual del requerimiento. "
+                "Revisa la ficha actualizada.",
+            )
+            return ficha
+
+        try:
+            requerimiento.cambiar_estado(
+                formulario.cleaned_data["estado"],
+                request.user,
+                formulario.cleaned_data["observacion"],
+            )
+        except TransicionNoPermitidaError as error:
+            messages.error(request, error.messages[0])
+            return ficha
+
+        messages.success(
+            request,
+            f"{requerimiento.consecutivo} pasó a «{requerimiento.get_estado_display()}».",
+        )
+        return ficha
 
 
 class DescargarAdjuntoView(LoginRequiredMixin, View):

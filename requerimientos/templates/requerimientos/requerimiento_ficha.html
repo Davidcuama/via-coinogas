@@ -10,12 +10,79 @@
     <h1 class="d-flex align-items-center gap-3 flex-wrap">
       <span class="placa" id="consecutivo">{{ requerimiento.consecutivo }}</span>
       <span class="chip chip-{{ requerimiento.prioridad.nombre|lower }}">{{ requerimiento.prioridad }}</span>
+      {% include "requerimientos/_estado.html" %}
     </h1>
     <p class="sub">Todo lo radicado, para evaluarlo sin pedir información adicional.</p>
   </div>
 
   <div class="mb-3">
     <a href="{% url 'requerimientos:bandeja' %}" class="btn btn-outline-secondary btn-sm">← Volver a la bandeja</a>
+  </div>
+
+  {# HU-23: estado actual, qué sigue y la historia del requerimiento. #}
+  <div class="card mb-4" id="seguimiento">
+    <div class="card-header">
+      <h2>Estado y seguimiento</h2>
+      {% include "requerimientos/_estado.html" %}
+    </div>
+    <div class="card-body">
+
+      {% if cambio_estado.fields.estado.choices %}
+        <form method="post" action="{% url 'requerimientos:cambiar_estado' requerimiento.consecutivo %}"
+              id="form-cambio-estado">
+          {% csrf_token %}
+          <label for="{{ cambio_estado.observacion.id_for_label }}" class="form-label">
+            {{ cambio_estado.observacion.label }}
+          </label>
+          {{ cambio_estado.observacion }}
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            {# Un botón por cada estado al que se puede pasar: lo que no aplica no aparece. #}
+            {% for valor, etiqueta in cambio_estado.fields.estado.choices %}
+              <button type="submit" name="estado" value="{{ valor }}"
+                      class="btn btn-sm {% if forloop.last %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                Pasar a «{{ etiqueta }}»
+              </button>
+            {% endfor %}
+          </div>
+        </form>
+      {% else %}
+        <p class="text-muted mb-0" id="sin-transiciones">
+          {% if requerimiento.estado == "cerrado" %}
+            Este requerimiento está cerrado: ya no admite cambios de estado.
+          {% else %}
+            Desde este estado no hay cambios que hacer por ahora.
+          {% endif %}
+        </p>
+      {% endif %}
+
+      <h3 class="bitacora-titulo">Historia</h3>
+      <ol class="bitacora" id="bitacora">
+        {# La radicación no es un cambio de estado, pero es donde empieza la historia. #}
+        <li class="bitacora-evento">
+          <span class="bitacora-fecha">{{ requerimiento.fecha_solicitud|date:"d/m/Y" }}</span>
+          <span class="bitacora-que">
+            Radicado
+            {% if requerimiento.creado_por %}
+              por {{ requerimiento.creado_por.get_full_name|default:requerimiento.creado_por.get_username }}
+            {% endif %}
+          </span>
+        </li>
+        {% for cambio in requerimiento.cambios_estado.all %}
+          <li class="bitacora-evento bitacora-{{ cambio.estado_nuevo }}">
+            <span class="bitacora-fecha">{{ cambio.fecha|date:"d/m/Y H:i" }}</span>
+            <span class="bitacora-que">
+              {{ cambio.get_estado_anterior_display }} → <strong>{{ cambio.get_estado_nuevo_display }}</strong>
+              {% if cambio.usuario %}
+                <span class="bitacora-quien">· {{ cambio.usuario.get_full_name|default:cambio.usuario.get_username }}</span>
+              {% endif %}
+            </span>
+            {% if cambio.observacion %}
+              <span class="bitacora-observacion">{{ cambio.observacion|linebreaksbr }}</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
   </div>
 
   <div class="card mb-4">

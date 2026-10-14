@@ -151,6 +151,28 @@ class EstadoRequerimiento(models.TextChoices):
 
 ESTADO_MAX_LENGTH = 20
 
+# HU-23: a qué estado se puede pasar desde cada uno. El flujo normal del área
+# de compras es revisar, cotizar y cerrar; se permite volver de cotización a
+# revisión porque a veces la cotización destapa algo que hay que revisar de
+# nuevo. Cerrado es definitivo. Las transiciones hacia y desde Devuelto llegan
+# con la devolución (HU-24), que exige además una observación.
+TRANSICIONES = {
+    EstadoRequerimiento.RADICADO: (EstadoRequerimiento.EN_REVISION,),
+    EstadoRequerimiento.EN_REVISION: (EstadoRequerimiento.EN_COTIZACION,),
+    EstadoRequerimiento.EN_COTIZACION: (
+        EstadoRequerimiento.EN_REVISION,
+        EstadoRequerimiento.CERRADO,
+    ),
+    EstadoRequerimiento.DEVUELTO: (),
+    EstadoRequerimiento.CERRADO: (),
+}
+
+OBSERVACION_MAX_LENGTH = 1000
+
+
+class TransicionNoPermitidaError(ValidationError):
+    """Se intentó pasar a un estado al que no se llega desde el actual (HU-23)."""
+
 
 class Requerimiento(models.Model):
     # --- Consecutivo de radicación (HU-16) ---
@@ -269,6 +291,43 @@ class Requerimiento(models.Model):
         El total sigue siendo válido, pero es parcial: sirve para advertirlo.
         """
         return self.items.filter(precio_referencia__isnull=True).exists()
+
+    def estados_siguientes(self):
+        """Estados a los que se puede pasar desde el actual (HU-23)."""
+        return TRANSICIONES.get(self.estado, ())
+
+    def cambiar_estado(self, nuevo, usuario, observacion=""):
+        """Pasa el requerimiento a `nuevo` y deja el cambio en la bitácora (HU-23).
+
+        La transición se valida contra el estado que hay en la base de datos,
+        no contra el que trae este objeto en memoria: si dos analistas tienen
+        la ficha abierta y los dos actúan, el segundo cambio se rechaza en vez
+        de pisar al primero sin que nadie lo note. La fila se bloquea mientras
+        tanto, y estado y bitácora se guardan juntos o no se guarda ninguno.
+        """
+        with transaction.atomic():
+            actual = Requerimiento.objects.select_for_update().get(pk=self.pk)
+            if nuevo not in TRANSICIONES.get(actual.estado, ()):
+                destino = (
+                    EstadoRequerimiento(nuevo).label
+                    if nuevo in EstadoRequerimiento.values
+                    else nuevo
+                )
+                raise TransicionNoPermitidaError(
+                    f"Un requerimiento en «{actual.get_estado_display()}» no puede pasar a "
+                    f"«{destino}».",
+                    code="transicion_no_permitida",
+                )
+            anterior = actual.estado
+            Requerimiento.objects.filter(pk=self.pk).update(estado=nuevo)
+            self.estado = nuevo
+            return CambioEstado.objects.create(
+                requerimiento=self,
+                estado_anterior=anterior,
+                estado_nuevo=nuevo,
+                observacion=(observacion or "").strip(),
+                usuario=usuario,
+            )
 
     def renumerar_items(self):
         """Deja la numeración de los ítems consecutiva desde 1 (HU-06).

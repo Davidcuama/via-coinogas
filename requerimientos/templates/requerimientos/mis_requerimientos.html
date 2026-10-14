@@ -45,10 +45,7 @@
       {% endif %}
     </div>
     <div class="card-body p-0">
-      {% comment %}
-        La columna de estado se agrega a la tabla compartida cuando HU-23 cree
-        el campo `estado` en el modelo.
-      {% endcomment %}
+      {# HU-23: la tabla compartida trae el estado de cada requerimiento. #}
       {% if busqueda %}
         {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Ningún requerimiento tuyo coincide con esa búsqueda." %}
       {% else %}

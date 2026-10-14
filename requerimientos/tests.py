@@ -46,6 +46,7 @@ from .models import (
     ProveedorSugerido,
     Requerimiento,
     SecuenciaRadicacion,
+    TransicionNoPermitidaError,
     UnidadMedida,
     ruta_adjunto,
 )
@@ -3336,3 +3337,198 @@ class FotoDesdeMovilTests(MediaTemporalMixin, VistaTestCase):
                 ("foto-camara-2.jpg", Adjunto.Tipo.FOTO),
             ],
         )
+
+
+# --- HU-23: estados del requerimiento ---------------------------------------
+
+
+class TransicionesEstadoTests(TestCase):
+    """HU-23: reglas del flujo de estados, sin pasar por las vistas."""
+
+    def setUp(self):
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = crear_requerimiento()
+
+    def test_el_flujo_completo_revisar_cotizar_y_cerrar(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.CERRADO)
+
+    def test_cada_cambio_queda_en_la_bitacora_con_quien_y_por_que(self):
+        cambio = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.EN_REVISION, self.analista, "  Se toma para revisión.  "
+        )
+        self.assertEqual(cambio.estado_anterior, EstadoRequerimiento.RADICADO)
+        self.assertEqual(cambio.estado_nuevo, EstadoRequerimiento.EN_REVISION)
+        self.assertEqual(cambio.usuario, self.analista)
+        # La observación se guarda sin espacios sobrantes.
+        self.assertEqual(cambio.observacion, "Se toma para revisión.")
+
+    def test_no_se_puede_saltar_pasos(self):
+        # De radicado no se cierra directo: primero hay que revisar y cotizar.
+        with self.assertRaisesMessage(TransicionNoPermitidaError, "no puede pasar a «Cerrado»"):
+            self.requerimiento.cambiar_estado(EstadoRequerimiento.CERRADO, self.analista)
+
+    def test_una_transicion_rechazada_no_toca_nada(self):
+        with self.assertRaises(TransicionNoPermitidaError):
+            self.requerimiento.cambiar_estado(EstadoRequerimiento.CERRADO, self.analista)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertEqual(self.requerimiento.cambios_estado.count(), 0)
+
+    def test_de_cotizacion_se_puede_volver_a_revision(self):
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, self.analista)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.EN_REVISION)
+
+    def test_cerrado_es_definitivo(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        self.assertEqual(self.requerimiento.estados_siguientes(), ())
+
+    def test_se_valida_contra_la_base_de_datos_y_no_contra_la_memoria(self):
+        # Dos analistas con la ficha abierta: el segundo trae un estado viejo en
+        # memoria y su cambio no debe pisar el del primero.
+        copia_vieja = Requerimiento.objects.get(pk=self.requerimiento.pk)
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+
+        with self.assertRaises(TransicionNoPermitidaError):
+            copia_vieja.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+        self.assertEqual(self.requerimiento.cambios_estado.count(), 1)
+
+    def test_un_estado_que_no_existe_se_rechaza_con_un_mensaje_claro(self):
+        with self.assertRaisesMessage(TransicionNoPermitidaError, "«anulado»"):
+            self.requerimiento.cambiar_estado("anulado", self.analista)
+
+
+class CambiarEstadoVistaTests(VistaTestCase):
+    """HU-23: el analista cambia el estado desde la ficha."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.requerimiento = crear_requerimiento()
+        self.url = reverse("requerimientos:cambiar_estado", args=[self.requerimiento.consecutivo])
+        self.ficha = reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+
+    def test_el_analista_pasa_el_requerimiento_a_revision(self):
+        respuesta = self.client.post(
+            self.url, {"estado": EstadoRequerimiento.EN_REVISION, "observacion": "Lo tomo yo."}
+        )
+
+        self.assertRedirects(respuesta, self.ficha)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.EN_REVISION)
+        cambio = self.requerimiento.cambios_estado.get()
+        self.assertEqual((cambio.usuario, cambio.observacion), (self.usuario, "Lo tomo yo."))
+
+    def test_avisa_el_estado_nuevo_al_volver_a_la_ficha(self):
+        respuesta = self.client.post(
+            self.url, {"estado": EstadoRequerimiento.EN_REVISION}, follow=True
+        )
+        self.assertContains(respuesta, "pasó a «En revisión»")
+
+    def test_un_cambio_que_ya_no_aplica_se_rechaza_sin_tocar_nada(self):
+        # Botón de una ficha vieja: ese estado ya no es un siguiente válido.
+        respuesta = self.client.post(self.url, {"estado": EstadoRequerimiento.CERRADO}, follow=True)
+        self.assertContains(respuesta, "ya no aplica al estado actual")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_si_el_estado_cambio_entre_la_validacion_y_el_guardado_se_avisa(self):
+        # El formulario se valida con el estado que había al cargar; si otro
+        # analista lo mueve justo antes de guardar, el modelo lo detiene.
+        with mock.patch.object(
+            Requerimiento,
+            "cambiar_estado",
+            side_effect=TransicionNoPermitidaError("Otro analista ya lo movió."),
+        ):
+            respuesta = self.client.post(
+                self.url, {"estado": EstadoRequerimiento.EN_REVISION}, follow=True
+            )
+        self.assertContains(respuesta, "Otro analista ya lo movió.")
+
+    def test_el_solicitante_no_puede_cambiar_estados(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        respuesta = otro.post(self.url, {"estado": EstadoRequerimiento.EN_REVISION})
+        self.assertEqual(respuesta.status_code, 403)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_solo_acepta_post(self):
+        # Un enlace abierto sin querer no puede mover un requerimiento.
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_un_consecutivo_que_no_existe_responde_404(self):
+        url = reverse("requerimientos:cambiar_estado", args=["REQ-1999-0001"])
+        self.assertEqual(self.client.post(url, {"estado": "revision"}).status_code, 404)
+
+    def test_la_ficha_ofrece_solo_los_estados_siguientes(self):
+        respuesta = self.client.get(self.ficha)
+        self.assertContains(respuesta, 'value="revision"')
+        self.assertNotContains(respuesta, 'value="cerrado"')
+        self.assertNotContains(respuesta, 'value="cotizacion"')
+
+    def test_la_ficha_muestra_la_bitacora_con_la_observacion(self):
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.EN_REVISION, self.usuario, "Se pidió foto del daño."
+        )
+        respuesta = self.client.get(self.ficha)
+        self.assertContains(respuesta, 'id="bitacora"')
+        self.assertContains(respuesta, "Se pidió foto del daño.")
+        self.assertContains(respuesta, "Ana Gómez")
+
+    def test_un_requerimiento_cerrado_ya_no_ofrece_cambios(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.usuario)
+        respuesta = self.client.get(self.ficha)
+        self.assertNotContains(respuesta, 'id="form-cambio-estado"')
+        self.assertContains(respuesta, "ya no admite cambios de estado")
+
+
+class EstadoEnListadosTests(VistaTestCase):
+    """HU-23: el estado se ve en la bandeja y en «mis requerimientos»."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.radicado = crear_requerimiento(creado_por=self.usuario)
+        self.en_revision = crear_requerimiento(creado_por=self.usuario)
+        self.en_revision.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.usuario)
+
+    def test_la_bandeja_filtra_por_estado(self):
+        respuesta = self.client.get(
+            reverse("requerimientos:bandeja"), {"estado": EstadoRequerimiento.EN_REVISION}
+        )
+        self.assertEqual(list(respuesta.context["requerimientos"]), [self.en_revision])
+
+    def test_un_estado_invalido_en_la_url_no_deja_la_bandeja_en_blanco(self):
+        respuesta = self.client.get(reverse("requerimientos:bandeja"), {"estado": "anulado"})
+        self.assertEqual(len(respuesta.context["requerimientos"]), 2)
+
+    def test_la_bandeja_muestra_el_estado_de_cada_uno(self):
+        respuesta = self.client.get(reverse("requerimientos:bandeja"))
+        self.assertContains(respuesta, 'class="estado estado-revision"')
+        self.assertContains(respuesta, 'class="estado estado-radicado"')
+
+    def test_el_solicitante_ve_en_que_va_lo_suyo(self):
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertContains(respuesta, "En revisión")
+        self.assertContains(respuesta, "Radicado")

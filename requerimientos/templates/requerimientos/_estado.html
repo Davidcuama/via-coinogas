@@ -1,0 +1,5 @@
+{% comment %}
+  Chip con el estado de un requerimiento (HU-23). Los colores son los del
+  prototipo de interfaces que validó el cliente.
+{% endcomment %}
+<span class="estado estado-{{ requerimiento.estado }}">{{ requerimiento.get_estado_display }}</span>

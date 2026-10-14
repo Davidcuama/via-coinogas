@@ -10,7 +10,9 @@ from .models import (
     JUSTIFICACION_MAX_LENGTH,
     MAX_PROVEEDORES_SUGERIDOS,
     MENSAJE_SUSTITUTOS_OBLIGATORIOS,
+    OBSERVACION_MAX_LENGTH,
     Area,
+    EstadoRequerimiento,
     Item,
     Prioridad,
     ProveedorSugerido,
@@ -469,9 +471,15 @@ class FiltroBandejaForm(forms.Form):
     no se aplica: el analista nunca se queda con la bandeja en blanco por un
     parámetro dañado en la URL.
 
-    El filtro por estado entra cuando HU-23 cree el campo `estado` en el
-    modelo; aquí basta con agregar el campo y su línea en `aplicar`.
+    El filtro por estado lo agregó HU-23, que es la que crea ese campo.
     """
+
+    estado = forms.ChoiceField(
+        label="Estado",
+        required=False,
+        choices=[("", "Todos"), *EstadoRequerimiento.choices],
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
 
     area = forms.ModelChoiceField(
         label="Área o proyecto",
@@ -530,6 +538,8 @@ class FiltroBandejaForm(forms.Form):
     def aplicar(self, consulta):
         """Filtra y ordena la consulta de la bandeja con los criterios válidos."""
         criterios = self.criterios()
+        if "estado" in criterios:
+            consulta = consulta.filter(estado=criterios["estado"])
         if "area" in criterios:
             consulta = consulta.filter(area=criterios["area"])
         if "prioridad" in criterios:
@@ -623,3 +633,35 @@ class AdjuntosForm(forms.Form):
             f"{filesizeformat(reglas_adjuntos.TAMANO_MAXIMO)} cada uno. "
             "Fotos (JPG, PNG, WEBP, HEIC) y documentos (PDF, Word, Excel)."
         )
+
+
+class CambioEstadoForm(forms.Form):
+    """Cambio de estado de un requerimiento por el área de compras (HU-23).
+
+    Solo ofrece los estados a los que se llega desde el actual, así que el
+    analista no tiene que saberse el flujo: lo que no aplica no aparece. La
+    regla de verdad vive en el modelo, que la vuelve a revisar al guardar.
+    """
+
+    estado = forms.ChoiceField(label="Nuevo estado", widget=forms.HiddenInput)
+    observacion = forms.CharField(
+        label="Observación (opcional)",
+        required=False,
+        max_length=OBSERVACION_MAX_LENGTH,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 2,
+                "maxlength": OBSERVACION_MAX_LENGTH,
+                "placeholder": "Por qué cambia, qué sigue, a quién se le pidió cotización…",
+            }
+        ),
+    )
+
+    def __init__(self, *args, requerimiento, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.requerimiento = requerimiento
+        self.fields["estado"].choices = [
+            (estado, EstadoRequerimiento(estado).label)
+            for estado in requerimiento.estados_siguientes()
+        ]

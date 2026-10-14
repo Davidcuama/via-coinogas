@@ -972,3 +972,102 @@ h1, h2, h3, h4 {
   font-size: 12px;
   color: var(--alerta);
 }
+
+/* ============================================================
+   Estados del requerimiento (HU-23)
+   Colores del prototipo de interfaces que validó el cliente.
+   ============================================================ */
+
+.estado {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--texto);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.estado::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.estado-radicado { background: #e7f0f8; color: var(--azul-oscuro); }
+.estado-revision { background: #eae8f7; color: #54479b; }
+.estado-devuelto { background: #fbedeb; color: var(--alerta); }
+.estado-cotizacion { background: var(--verde-suave); color: #b85a18; }
+.estado-cerrado { background: #e4f3ef; color: var(--verde); }
+
+.card-header .estado {
+  margin-left: auto;
+}
+
+/* Bitácora: la historia del requerimiento, de arriba hacia abajo. */
+.bitacora-titulo {
+  font-size: 14px;
+  color: var(--azul-profundo);
+  margin: 20px 0 10px;
+}
+
+.bitacora {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 2px solid var(--linea);
+}
+
+.bitacora-evento {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 14px 4px;
+}
+
+.bitacora-evento::before {
+  content: "";
+  position: absolute;
+  left: -25px;
+  top: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--linea-fuerte);
+}
+
+.bitacora-revision::before { border-color: #54479b; }
+.bitacora-devuelto::before { border-color: var(--alerta); }
+.bitacora-cotizacion::before { border-color: #b85a18; }
+.bitacora-cerrado::before { border-color: var(--verde); background: var(--verde); }
+
+.bitacora-fecha {
+  font-family: var(--dato);
+  font-size: 11px;
+  color: var(--tinta-suave);
+}
+
+.bitacora-que {
+  font-size: 13px;
+}
+
+.bitacora-quien {
+  color: var(--tinta-media);
+}
+
+.bitacora-observacion {
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  background: var(--niebla);
+  border-radius: var(--r);
+  color: var(--tinta);
+}
+
