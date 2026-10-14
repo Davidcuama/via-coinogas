@@ -59,3 +59,27 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
+
+# Cobertura de pruebas (medida en el CI con `coverage run manage.py test`).
+# Se mide solo el código propio: Django, las migraciones y las pruebas no cuentan.
+[tool.coverage.run]
+source = ["requerimientos", "via_coinogas"]
+branch = true
+omit = [
+    "*/migrations/*",
+    "*/tests.py",
+    "*/tests/*",
+    "manage.py",
+    "*/asgi.py",
+    "*/wsgi.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Mínimo exigido: si la cobertura baja de aquí, `coverage report` falla y el CI
+# bloquea el merge. Justificación en la Wiki: "Estrategia de Pruebas Automáticas".
+fail_under = 90
+
+[tool.coverage.html]
+directory = "htmlcov"
