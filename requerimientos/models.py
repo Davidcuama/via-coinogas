@@ -1,4 +1,6 @@
+import uuid
 from decimal import Decimal
+from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -131,6 +133,23 @@ class SecuenciaRadicacion(models.Model):
         return f"{CONSECUTIVO_PREFIJO}-{anio}-{secuencia.ultimo_numero:0{CONSECUTIVO_DIGITOS}d}"
 
 
+class EstadoRequerimiento(models.TextChoices):
+    """Estados del requerimiento a lo largo de su atención (HU-23).
+
+    Son los cinco del prototipo de interfaces del Sprint 0, que el cliente ya
+    validó: así lo que ve en pantalla coincide con lo que se acordó.
+    """
+
+    RADICADO = "radicado", "Radicado"
+    EN_REVISION = "revision", "En revisión"
+    DEVUELTO = "devuelto", "Devuelto"
+    EN_COTIZACION = "cotizacion", "En cotización"
+    CERRADO = "cerrado", "Cerrado"
+
+
+ESTADO_MAX_LENGTH = 20
+
+
 class Requerimiento(models.Model):
     # --- Consecutivo de radicación (HU-16) ---
     # Se asigna en save() la primera vez que se guarda; el usuario nunca lo edita.
@@ -201,6 +220,19 @@ class Requerimiento(models.Model):
         "Productos o servicios sustitutos",
         blank=True,
         help_text="Qué alternativa sirve y en qué condiciones (marca, referencia, etc.).",
+    )
+
+    # --- Estado de la atención (HU-23) ---
+    # No es editable desde un formulario cualquiera: solo cambia por las
+    # transiciones permitidas, que dejan rastro en CambioEstado. Indexado porque
+    # la bandeja filtra por él.
+    estado = models.CharField(
+        "Estado",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+        default=EstadoRequerimiento.RADICADO,
+        db_index=True,
+        editable=False,
     )
 
     class Meta:
@@ -449,3 +481,106 @@ class ProveedorSugerido(models.Model):
 
     def __str__(self):
         return f"{self.nombre} ({self.telefono})"
+
+
+class CambioEstado(models.Model):
+    """Bitácora de los cambios de estado de un requerimiento (HU-23, HU-24).
+
+    Cada transición queda registrada con quién la hizo y cuándo. La observación
+    es la que hace posible la devolución (HU-24): el analista dice qué falta y
+    el solicitante lo lee en el sistema, sin recurrir al correo. Es opcional en
+    los demás cambios.
+    """
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="cambios_estado",
+        verbose_name="Requerimiento",
+    )
+    estado_anterior = models.CharField(
+        "Estado anterior",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+    )
+    estado_nuevo = models.CharField(
+        "Estado nuevo",
+        max_length=ESTADO_MAX_LENGTH,
+        choices=EstadoRequerimiento.choices,
+    )
+    observacion = models.TextField("Observación", blank=True)
+    # SET_NULL: si se da de baja la cuenta, el cambio sigue en la bitácora.
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cambios_estado",
+        verbose_name="Realizado por",
+    )
+    fecha = models.DateTimeField("Fecha", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Cambio de estado"
+        verbose_name_plural = "Cambios de estado"
+        # Cronológico: la bitácora se lee como la historia del requerimiento.
+        ordering = ["fecha", "pk"]
+        indexes = [models.Index(fields=["requerimiento", "fecha"])]
+
+    def __str__(self):
+        return (
+            f"{self.requerimiento.consecutivo}: "
+            f"{self.get_estado_anterior_display()} → {self.get_estado_nuevo_display()}"
+        )
+
+
+def ruta_adjunto(instancia, nombre):
+    """Ruta donde se guarda un adjunto (HU-11).
+
+    Los archivos de un requerimiento quedan juntos, bajo su consecutivo, y con
+    un nombre aleatorio: el original lo escoge el usuario, puede chocar con el
+    de otro adjunto o traer caracteres que el sistema de archivos no admite. Se
+    conserva aparte, en `nombre_original`, para mostrarlo.
+    """
+    extension = Path(nombre).suffix.lower()
+    return f"adjuntos/{instancia.requerimiento.consecutivo}/{uuid.uuid4().hex}{extension}"
+
+
+class Adjunto(models.Model):
+    """Fotografía o documento de soporte de un requerimiento (HU-11).
+
+    Fichas técnicas, cotizaciones de referencia o la foto del artículo: lo que
+    evita que compras tenga que adivinar qué se está pidiendo.
+    """
+
+    class Tipo(models.TextChoices):
+        FOTO = "foto", "Fotografía"
+        DOCUMENTO = "documento", "Documento"
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="adjuntos",
+        verbose_name="Requerimiento",
+    )
+    archivo = models.FileField("Archivo", upload_to=ruta_adjunto, max_length=255)
+    nombre_original = models.CharField("Nombre del archivo", max_length=255)
+    tipo = models.CharField("Tipo", max_length=12, choices=Tipo.choices)
+    tamano = models.PositiveIntegerField("Tamaño (bytes)")
+    subido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="adjuntos_subidos",
+        verbose_name="Subido por",
+    )
+    subido_en = models.DateTimeField("Subido el", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Adjunto"
+        verbose_name_plural = "Adjuntos"
+        ordering = ["subido_en", "pk"]
+
+    def __str__(self):
+        return self.nombre_original

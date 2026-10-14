@@ -26,14 +26,18 @@ from . import notificaciones, perfiles
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import CAMPOS_OBLIGATORIOS, ItemForm, RequerimientoForm
 from .models import (
+    Adjunto,
     Area,
+    CambioEstado,
     CentroCosto,
+    EstadoRequerimiento,
     Item,
     Prioridad,
     ProveedorSugerido,
     Requerimiento,
     SecuenciaRadicacion,
     UnidadMedida,
+    ruta_adjunto,
 )
 
 
@@ -2844,3 +2848,103 @@ class ProductosSustitutosTests(VistaTestCase):
         with self.assertRaises(ValidationError) as contexto:
             requerimiento.full_clean()
         self.assertIn("sustitutos", contexto.exception.message_dict)
+
+
+def crear_requerimiento(creado_por=None, **overrides):
+    """Requerimiento mínimo y válido, para las pruebas de estados y adjuntos.
+
+    Crea los catálogos que necesita si todavía no existen, de modo que cada
+    prueba pida solo lo que le importa.
+    """
+    area, _ = Area.objects.get_or_create(nombre="Mantenimiento")
+    centro_costo, _ = CentroCosto.objects.get_or_create(
+        codigo="CC-100", defaults={"nombre": "Planta Medellín"}
+    )
+    prioridad, _ = Prioridad.objects.get_or_create(nombre=Prioridad.MEDIA, defaults={"orden": 2})
+    datos = {
+        "solicitante": "Ana Gómez",
+        "area": area,
+        "centro_costo": centro_costo,
+        "justificacion": "Reposición de instrumentación de planta.",
+        "prioridad": prioridad,
+        "fecha_requerida": date.today() + timedelta(days=10),
+        "creado_por": creado_por,
+    }
+    datos.update(overrides)
+    return Requerimiento.objects.create(**datos)
+
+
+class EsquemaEstadoTests(TestCase):
+    """HU-23: el requerimiento tiene estado y su bitácora de cambios."""
+
+    def test_todo_requerimiento_nace_radicado(self):
+        self.assertEqual(crear_requerimiento().estado, EstadoRequerimiento.RADICADO)
+
+    def test_son_los_cinco_estados_del_prototipo(self):
+        self.assertEqual(
+            [etiqueta for _, etiqueta in EstadoRequerimiento.choices],
+            ["Radicado", "En revisión", "Devuelto", "En cotización", "Cerrado"],
+        )
+
+    def test_el_estado_no_se_edita_desde_el_formulario_de_radicacion(self):
+        # Solo cambia por transiciones que dejan rastro: si estuviera en el
+        # formulario, el solicitante podría radicar algo ya "cerrado".
+        self.assertNotIn("estado", RequerimientoForm().fields)
+
+    def test_la_bitacora_se_lee_en_orden_cronologico(self):
+        requerimiento = crear_requerimiento()
+        primero = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.EN_REVISION,
+        )
+        segundo = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.EN_REVISION,
+            estado_nuevo=EstadoRequerimiento.EN_COTIZACION,
+        )
+        self.assertEqual(list(requerimiento.cambios_estado.all()), [primero, segundo])
+
+    def test_un_cambio_se_describe_con_su_consecutivo_y_la_transicion(self):
+        requerimiento = crear_requerimiento()
+        cambio = CambioEstado.objects.create(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.DEVUELTO,
+        )
+        self.assertEqual(str(cambio), f"{requerimiento.consecutivo}: Radicado → Devuelto")
+
+    def test_la_bitacora_sobrevive_a_la_baja_de_la_cuenta(self):
+        cuenta = crear_usuario("daryi.silva", perfil=perfiles.ANALISTA)
+        cambio = CambioEstado.objects.create(
+            requerimiento=crear_requerimiento(),
+            estado_anterior=EstadoRequerimiento.RADICADO,
+            estado_nuevo=EstadoRequerimiento.EN_REVISION,
+            usuario=cuenta,
+        )
+        cuenta.delete()
+        cambio.refresh_from_db()
+        self.assertIsNone(cambio.usuario)
+
+
+class EsquemaAdjuntoTests(TestCase):
+    """HU-11: el requerimiento admite adjuntos."""
+
+    def test_la_ruta_agrupa_por_consecutivo_con_nombre_aleatorio(self):
+        requerimiento = crear_requerimiento()
+        adjunto = Adjunto(requerimiento=requerimiento)
+
+        ruta = ruta_adjunto(adjunto, "Ficha Técnica (v2).PDF")
+
+        self.assertTrue(ruta.startswith(f"adjuntos/{requerimiento.consecutivo}/"))
+        # La extensión se conserva, en minúsculas; el nombre del usuario no.
+        self.assertTrue(ruta.endswith(".pdf"))
+        self.assertNotIn("Ficha", ruta)
+
+    def test_dos_archivos_con_el_mismo_nombre_no_chocan(self):
+        adjunto = Adjunto(requerimiento=crear_requerimiento())
+        self.assertNotEqual(ruta_adjunto(adjunto, "foto.jpg"), ruta_adjunto(adjunto, "foto.jpg"))
+
+    def test_un_adjunto_se_muestra_con_su_nombre_original(self):
+        adjunto = Adjunto(nombre_original="cotizacion-proveedor.pdf")
+        self.assertEqual(str(adjunto), "cotizacion-proveedor.pdf")
