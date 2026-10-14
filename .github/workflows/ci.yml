@@ -67,10 +67,23 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+      # requirements-dev.txt incluye requirements.txt y además coverage.
+      - run: pip install -r requirements-dev.txt
       - name: Verificación de configuración de Django
         run: python manage.py check
       - name: Migraciones sin cambios pendientes
         run: python manage.py makemigrations --check --dry-run
-      - name: Pruebas
-        run: python manage.py test --verbosity 2
+      - name: Pruebas con medición de cobertura
+        run: coverage run manage.py test --verbosity 2
+      # Falla el pipeline si la cobertura baja del mínimo (fail_under en pyproject.toml).
+      - name: Reporte de cobertura (mínimo exigido)
+        run: coverage report
+      - name: Generar reporte HTML de cobertura
+        if: always()
+        run: coverage html
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-cobertura
+          path: htmlcov/

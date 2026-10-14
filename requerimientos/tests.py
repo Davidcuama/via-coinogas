@@ -2306,3 +2306,139 @@ class ExportarAnaliticaTests(TestCase):
         self.assertEqual(self._leer("analitica_requerimientos"), [])
         crudo = (self.destino / "analitica_requerimientos.csv").read_text(encoding="utf-8-sig")
         self.assertIn("consecutivo", crudo.splitlines()[0])
+
+
+class CargarCatalogosTests(TestCase):
+    """Comando `cargar_catalogos`: prioridades (HU-04) y unidades de medida (HU-07)."""
+
+    def _cargar(self):
+        salida = StringIO()
+        call_command("cargar_catalogos", stdout=salida)
+        return salida.getvalue()
+
+    def test_carga_las_tres_prioridades_en_orden(self):
+        self._cargar()
+        nombres = list(Prioridad.objects.order_by("orden").values_list("nombre", flat=True))
+        self.assertEqual(nombres, [Prioridad.ALTA, Prioridad.MEDIA, Prioridad.BAJA])
+
+    def test_carga_las_unidades_de_medida(self):
+        self._cargar()
+        self.assertTrue(UnidadMedida.objects.filter(codigo="UND", nombre="Unidad").exists())
+        self.assertEqual(UnidadMedida.objects.count(), 9)
+
+    def test_correrlo_dos_veces_no_duplica_ni_falla(self):
+        self._cargar()
+        salida = self._cargar()
+        self.assertEqual(Prioridad.objects.count(), 3)
+        self.assertEqual(UnidadMedida.objects.count(), 9)
+        self.assertIn("actualizada", salida)
+
+    def test_corrige_un_orden_alterado_a_mano(self):
+        Prioridad.objects.create(nombre=Prioridad.ALTA, orden=9)
+        self._cargar()
+        self.assertEqual(Prioridad.objects.get(nombre=Prioridad.ALTA).orden, 1)
+
+
+class CrearPerfilesTests(TestCase):
+    """Comando `crear_perfiles`: grupos de perfil y cuentas de demostración."""
+
+    def _crear(self, **opciones):
+        salida = StringIO()
+        call_command("crear_perfiles", stdout=salida, **opciones)
+        return salida.getvalue()
+
+    def test_crea_los_tres_perfiles(self):
+        self._crear()
+        self.assertEqual(set(Group.objects.values_list("name", flat=True)), set(perfiles.PERFILES))
+
+    def test_sin_con_demo_no_crea_cuentas(self):
+        salida = self._crear()
+        self.assertFalse(get_user_model().objects.exists())
+        self.assertIn("--con-demo", salida)
+
+    def test_con_demo_crea_una_cuenta_por_perfil_con_su_grupo(self):
+        self._crear(con_demo=True)
+        analista = get_user_model().objects.get(username="analista")
+        self.assertTrue(perfiles.es(analista, perfiles.ANALISTA))
+        self.assertTrue(analista.has_usable_password())
+        administrador = get_user_model().objects.get(username="admin.compras")
+        self.assertTrue(administrador.is_staff)
+
+    def test_con_demo_no_cambia_la_clave_de_una_cuenta_existente(self):
+        cuenta = crear_usuario(usuario="solicitante", clave="clave-que-ya-usaba")
+        salida = self._crear(con_demo=True)
+        cuenta.refresh_from_db()
+        self.assertTrue(cuenta.check_password("clave-que-ya-usaba"))
+        self.assertIn("ya existía", salida)
+
+
+class CrearRolAnaliticaTests(TestCase):
+    """Comando `crear_rol_analitica` (HU-29): rol de BD de solo lectura.
+
+    El comando solo tiene sentido en PostgreSQL. Las validaciones y el SQL que
+    emite se prueban con un cursor simulado para que corran en cualquier motor;
+    la ejecución real contra PostgreSQL la cubre el CI.
+    """
+
+    def _con_cursor_simulado(self, rol_existe):
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = (1,) if rol_existe else None
+        contexto = mock.MagicMock()
+        contexto.__enter__.return_value = cursor
+        parches = (
+            mock.patch.object(connection, "vendor", "postgresql"),
+            mock.patch.object(connection, "cursor", return_value=contexto),
+        )
+        for parche in parches:
+            parche.start()
+            self.addCleanup(parche.stop)
+        return cursor
+
+    def _sql_emitido(self, cursor):
+        return [llamada.args[0] for llamada in cursor.execute.call_args_list]
+
+    @skipUnless(connection.vendor != "postgresql", "Valida el rechazo en motores no PostgreSQL.")
+    def test_fuera_de_postgresql_se_niega_a_correr(self):
+        with self.assertRaisesMessage(CommandError, "solo aplica a PostgreSQL"):
+            call_command("crear_rol_analitica", password="x", stdout=StringIO())
+
+    def test_sin_contrasena_falla_con_un_mensaje_claro(self):
+        self._con_cursor_simulado(rol_existe=False)
+        with mock.patch.dict("os.environ", {}, clear=False) as entorno:
+            entorno.pop("ANALITICA_DB_PASSWORD", None)
+            with self.assertRaisesMessage(CommandError, "Falta la contraseña"):
+                call_command("crear_rol_analitica", stdout=StringIO())
+
+    def test_rechaza_un_nombre_de_rol_que_no_sea_identificador_simple(self):
+        self._con_cursor_simulado(rol_existe=False)
+        with self.assertRaisesMessage(CommandError, "alfanumérico"):
+            call_command(
+                "crear_rol_analitica", password="x", rol='x"; DROP TABLE y; --', stdout=StringIO()
+            )
+
+    def test_crea_el_rol_y_solo_le_da_select_sobre_las_vistas(self):
+        cursor = self._con_cursor_simulado(rol_existe=False)
+        salida = StringIO()
+        call_command("crear_rol_analitica", password="clave", stdout=salida)
+        sql = self._sql_emitido(cursor)
+        self.assertTrue(any(s.startswith('CREATE ROLE "analitica_lectura"') for s in sql))
+        self.assertTrue(any(s.startswith("REVOKE ALL ON ALL TABLES") for s in sql))
+        concedidos = [s for s in sql if s.startswith("GRANT SELECT")]
+        self.assertEqual(
+            concedidos,
+            [
+                'GRANT SELECT ON "analitica_requerimientos" TO "analitica_lectura";',
+                'GRANT SELECT ON "analitica_items" TO "analitica_lectura";',
+            ],
+        )
+        self.assertIn("creado", salida.getvalue())
+
+    def test_si_el_rol_ya_existe_solo_actualiza_la_clave(self):
+        cursor = self._con_cursor_simulado(rol_existe=True)
+        with mock.patch.dict("os.environ", {"ANALITICA_DB_PASSWORD": "desde-entorno"}):
+            salida = StringIO()
+            call_command("crear_rol_analitica", stdout=salida)
+        sql = self._sql_emitido(cursor)
+        self.assertFalse(any(s.startswith("CREATE ROLE") for s in sql))
+        self.assertTrue(any(s.startswith('ALTER ROLE "analitica_lectura"') for s in sql))
+        self.assertIn("ya existía", salida.getvalue())
