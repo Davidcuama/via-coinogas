@@ -73,6 +73,17 @@
     </p>
   {% endif %}
 
+  <p><strong>Proveedores sugeridos</strong></p>
+  {% if requerimiento.proveedores_sugeridos.all %}
+    <ol>
+      {% for proveedor in requerimiento.proveedores_sugeridos.all %}
+        <li>{{ proveedor.nombre }} — Tel. {{ proveedor.telefono }}{% if proveedor.observaciones %} ({{ proveedor.observaciones }}){% endif %}</li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p>El solicitante no sugirió proveedores.</p>
+  {% endif %}
+
   <hr>
   <p style="color: #6c757d; font-size: 12px;">
     VIA Compras — Coinogas. Mensaje automático, no responder a este correo.

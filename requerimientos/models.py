@@ -2,11 +2,16 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
 JUSTIFICACION_MAX_LENGTH = 1000
+
+# HU-13: el solicitante sugiere como máximo tres proveedores. No hay un maestro
+# de proveedores (acuerdo n.º 3 con el cliente): compras los valida al iniciar
+# el contacto formal, así que aquí se guardan como texto libre.
+MAX_PROVEEDORES_SUGERIDOS = 3
 
 # HU-16: formato del consecutivo de radicación -> REQ-<año>-<número de 4 dígitos>.
 # El número reinicia cada año; el año garantiza que nunca se repita entre periodos.
@@ -375,3 +380,50 @@ class Item(models.Model):
         # HU-09: unas especificaciones con solo espacios equivalen a no tenerlas.
         if self.especificaciones_tecnicas and not self.especificaciones_tecnicas.strip():
             self.especificaciones_tecnicas = ""
+
+
+class ProveedorSugerido(models.Model):
+    """Proveedor que el solicitante sugiere para cotizar (HU-13).
+
+    Es texto libre a propósito: no existe un maestro de proveedores y compras
+    valida y da de alta al proveedor cuando inicia el contacto formal
+    (acuerdo n.º 3 con el cliente). Un requerimiento admite hasta
+    ``MAX_PROVEEDORES_SUGERIDOS``; sugerir es opcional.
+    """
+
+    requerimiento = models.ForeignKey(
+        Requerimiento,
+        on_delete=models.CASCADE,
+        related_name="proveedores_sugeridos",
+        verbose_name="Requerimiento",
+    )
+    orden = models.PositiveSmallIntegerField(
+        "Orden",
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(MAX_PROVEEDORES_SUGERIDOS),
+        ],
+        help_text="Posición del proveedor en la lista del solicitante (1 a 3).",
+    )
+    nombre = models.CharField("Nombre o razón social", max_length=150)
+    telefono = models.CharField("Teléfono de contacto", max_length=30)
+    observaciones = models.CharField(
+        "Observaciones",
+        max_length=200,
+        blank=True,
+        help_text="Contacto, sede, por qué se sugiere, etc.",
+    )
+
+    class Meta:
+        verbose_name = "Proveedor sugerido"
+        verbose_name_plural = "Proveedores sugeridos"
+        ordering = ["requerimiento", "orden"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requerimiento", "orden"],
+                name="proveedor_orden_unico_por_requerimiento",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.telefono})"

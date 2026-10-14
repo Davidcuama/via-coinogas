@@ -121,6 +121,39 @@
     </p>
   {% endif %}
 
+  {# HU-13: proveedores que sugirió el solicitante, para arrancar la cotización. #}
+  <div class="card mb-4" id="proveedores-sugeridos">
+    <div class="card-header"><h2>Proveedores sugeridos</h2></div>
+    <div class="card-body{% if requerimiento.proveedores_sugeridos.all %} p-0{% endif %}">
+      {% if requerimiento.proveedores_sugeridos.all %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="width: 3rem;" class="text-center">N.º</th>
+                <th>Proveedor</th>
+                <th style="width: 12rem;">Teléfono</th>
+                <th>Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for proveedor in requerimiento.proveedores_sugeridos.all %}
+                <tr>
+                  <td class="text-center">{{ proveedor.orden }}</td>
+                  <td>{{ proveedor.nombre }}</td>
+                  <td class="text-nowrap"><a href="tel:{{ proveedor.telefono|cut:' ' }}">{{ proveedor.telefono }}</a></td>
+                  <td>{{ proveedor.observaciones|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">El solicitante no sugirió proveedores.</p>
+      {% endif %}
+    </div>
+  </div>
+
   {% if requerimiento.adjuntos.exists %}
     <div class="card mb-4" id="adjuntos">
       <div class="card-header"><h2>Adjuntos</h2></div>
