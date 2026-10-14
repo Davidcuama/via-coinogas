@@ -46,14 +46,21 @@
   </table>
 </div>
 
+{% comment %}
+  `parametros_filtro` lleva los parámetros de la URL distintos de `page` ya
+  codificados, de modo que cambiar de página no pierda la búsqueda ni los
+  filtros. La vista que no filtra nada simplemente no lo define.
+{% endcomment %}
 {% if is_paginated %}
   <nav class="paginacion" aria-label="Páginas de resultados">
     {% if page_obj.has_previous %}
-      <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-outline-secondary btn-sm">← Anteriores</a>
+      <a href="?page={{ page_obj.previous_page_number }}{% if parametros_filtro %}&{{ parametros_filtro }}{% endif %}"
+         class="btn btn-outline-secondary btn-sm">← Anteriores</a>
     {% endif %}
     <span class="mini">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
     {% if page_obj.has_next %}
-      <a href="?page={{ page_obj.next_page_number }}" class="btn btn-outline-secondary btn-sm">Siguientes →</a>
+      <a href="?page={{ page_obj.next_page_number }}{% if parametros_filtro %}&{{ parametros_filtro }}{% endif %}"
+         class="btn btn-outline-secondary btn-sm">Siguientes →</a>
     {% endif %}
   </nav>
 {% endif %}

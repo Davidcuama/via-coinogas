@@ -3,6 +3,7 @@ from django.contrib.auth.mixins import AccessMixin, LoginRequiredMixin
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views import View
@@ -90,19 +91,53 @@ class BandejaView(PerfilRequeridoMixin, ListView):
 
 
 class MisRequerimientosView(LoginRequiredMixin, ListView):
-    """Lo que ha radicado quien está en sesión."""
+    """Lo que ha radicado quien está en sesión (HU-25).
+
+    El listado por sí solo no alcanza: quien lleva varias radicaciones necesita
+    llegar a una en concreto para hacerle seguimiento, y si no puede, acaba
+    llamando al área de compras —que es justo lo que la historia quiere evitar—.
+    De ahí la búsqueda sobre lo propio.
+
+    La columna de estado del requerimiento entra con HU-23, que es la que crea
+    ese campo en el modelo.
+    """
 
     template_name = "requerimientos/mis_requerimientos.html"
     context_object_name = "requerimientos"
     paginate_by = 25
 
+    def busqueda(self):
+        """Texto buscado, sin espacios sobrantes."""
+        return self.request.GET.get("q", "").strip()
+
     def get_queryset(self):
-        return (
+        propios = (
             Requerimiento.objects.filter(creado_por=self.request.user)
             .select_related("area", "prioridad")
             .prefetch_related("items")
             .order_by("-fecha_solicitud", "-pk")
         )
+
+        texto = self.busqueda()
+        if not texto:
+            return propios
+
+        # Se busca por lo que el solicitante recuerda: el consecutivo que le
+        # quedó, o qué fue lo que pidió. `distinct` porque el cruce con los
+        # ítems repetiría el requerimiento una vez por cada ítem que coincida.
+        return propios.filter(
+            Q(consecutivo__icontains=texto) | Q(items__descripcion__icontains=texto)
+        ).distinct()
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        contexto["busqueda"] = self.busqueda()
+        # Conserva la búsqueda al cambiar de página: sin esto, pasar a la
+        # página 2 devolvería el listado completo sin filtrar.
+        parametros = self.request.GET.copy()
+        parametros.pop("page", None)
+        contexto["parametros_filtro"] = parametros.urlencode()
+        return contexto
 
 
 class RequerimientoCreateView(LoginRequiredMixin, CreateView):

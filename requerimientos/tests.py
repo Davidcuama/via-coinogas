@@ -1973,3 +1973,122 @@ class FichaRequerimientoTests(TestCase):
         respuesta = self.client.get(self.url)
         self.assertEqual(respuesta.status_code, 302)
         self.assertIn(reverse("ingresar"), respuesta["Location"])
+
+
+class MisRequerimientosTests(VistaTestCase):
+    """HU-25: el solicitante consulta y busca entre lo que ha radicado."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.unidad, _ = UnidadMedida.objects.get_or_create(
+            codigo="UND", defaults={"nombre": "Unidad"}
+        )
+        self.url = reverse("requerimientos:mios")
+
+    def _radicar(self, *descripciones, cuenta=None):
+        """Crea un requerimiento con sus ítems, atado a una cuenta."""
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Reposición de insumos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+            creado_por=cuenta or self.usuario,
+        )
+        for numero, descripcion in enumerate(descripciones or ("Resma de papel carta",), start=1):
+            Item.objects.create(
+                requerimiento=requerimiento,
+                numero=numero,
+                cantidad=1,
+                unidad_medida=self.unidad,
+                descripcion=descripcion,
+            )
+        return requerimiento
+
+    def _listado(self, **parametros):
+        return self.client.get(self.url, parametros).context["requerimientos"]
+
+    # --- Listado ---
+
+    def test_lista_lo_radicado_por_la_cuenta_en_sesion(self):
+        req = self._radicar()
+        self.assertEqual(list(self._listado()), [req])
+
+    def test_lo_mas_reciente_aparece_primero(self):
+        primero = self._radicar("Resma de papel carta")
+        segundo = self._radicar("Tóner negro")
+        self.assertEqual(list(self._listado()), [segundo, primero])
+
+    def test_sin_requerimientos_lo_dice_en_pantalla(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "Todavía no has radicado ningún requerimiento.")
+
+    # --- Búsqueda (HU-25) ---
+
+    def test_busca_por_consecutivo(self):
+        buscado = self._radicar("Resma de papel carta")
+        self._radicar("Tóner negro")
+        self.assertEqual(list(self._listado(q=buscado.consecutivo)), [buscado])
+
+    def test_busca_por_consecutivo_parcial(self):
+        buscado = self._radicar()
+        ultimos = buscado.consecutivo[-4:]
+        self.assertEqual(list(self._listado(q=ultimos)), [buscado])
+
+    def test_busca_por_lo_que_se_pidio(self):
+        resmas = self._radicar("Resma de papel carta")
+        self._radicar("Tóner negro")
+        self.assertEqual(list(self._listado(q="resma")), [resmas])
+
+    def test_la_busqueda_ignora_mayusculas_y_espacios_sobrantes(self):
+        resmas = self._radicar("Resma de papel carta")
+        self.assertEqual(list(self._listado(q="  RESMA  ")), [resmas])
+
+    def test_un_requerimiento_con_varios_items_que_coinciden_aparece_una_sola_vez(self):
+        # Sin `distinct` el cruce con ítems lo repetiría una vez por coincidencia.
+        req = self._radicar("Resma de papel carta", "Resma de papel oficio")
+        self.assertEqual(list(self._listado(q="resma")), [req])
+
+    def test_la_busqueda_no_alcanza_requerimientos_ajenos(self):
+        otra_cuenta = crear_usuario("luis.mesa", "Luis", "Mesa")
+        ajeno = self._radicar("Resma de papel carta", cuenta=otra_cuenta)
+        self.assertEqual(list(self._listado(q="resma")), [])
+        self.assertEqual(list(self._listado(q=ajeno.consecutivo)), [])
+
+    def test_sin_coincidencias_lo_dice_sin_sugerir_que_no_ha_radicado_nada(self):
+        self._radicar("Resma de papel carta")
+        respuesta = self.client.get(self.url, {"q": "motobomba"})
+        self.assertContains(respuesta, "Ningún requerimiento tuyo coincide con esa búsqueda.")
+        self.assertNotContains(respuesta, "Todavía no has radicado ningún requerimiento.")
+
+    def test_la_pantalla_informa_cuantos_resultados_hubo(self):
+        self._radicar("Resma de papel carta")
+        respuesta = self.client.get(self.url, {"q": "resma"})
+        self.assertContains(respuesta, 'id="conteo-resultados"')
+        self.assertContains(respuesta, "1 resultado")
+
+    def test_el_buscador_conserva_lo_escrito(self):
+        respuesta = self.client.get(self.url, {"q": "resma"})
+        self.assertEqual(respuesta.context["busqueda"], "resma")
+        self.assertContains(respuesta, 'value="resma"')
+
+    def test_la_paginacion_conserva_la_busqueda(self):
+        # Sin esto, pasar a la página 2 devolvería el listado completo.
+        respuesta = self.client.get(self.url, {"q": "resma", "page": "1"})
+        self.assertEqual(respuesta.context["parametros_filtro"], "q=resma")
+
+    def test_una_busqueda_vacia_devuelve_todo(self):
+        req = self._radicar()
+        self.assertEqual(list(self._listado(q="   ")), [req])
+
+    def test_la_pantalla_no_filtra_comentarios_de_plantilla(self):
+        # `{# ... #}` solo comenta una linea en Django: si abarca dos, se
+        # imprime en la pagina. Para varias lineas va {% comment %}.
+        self._radicar()
+        respuesta = self.client.get(self.url)
+        self.assertNotContains(respuesta, "{#")
+        self.assertNotContains(respuesta, "#}")
