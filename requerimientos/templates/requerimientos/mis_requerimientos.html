@@ -16,13 +16,44 @@
     </div>
   </div>
 
+  {% comment %}
+    HU-25: buscar entre lo propio, para llegar a un requerimiento concreto sin
+    tener que paginar ni llamar al área de compras.
+  {% endcomment %}
+  <form method="get" class="card mb-3" role="search">
+    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+      <label for="q" class="mini mb-0">Buscar entre mis requerimientos</label>
+      <input type="search" id="q" name="q" value="{{ busqueda }}"
+             class="form-control" style="max-width: 24rem;"
+             placeholder="Consecutivo o qué pediste (ej. REQ-2026-0001, resma)">
+      <button type="submit" class="btn btn-primary">Buscar</button>
+      {% if busqueda %}
+        <a href="{% url 'requerimientos:mios' %}" class="btn btn-outline-secondary">Limpiar</a>
+      {% endif %}
+    </div>
+  </form>
+
   <div class="card">
     <div class="card-header">
       <h2>Radicados por ti</h2>
-      <span class="mini">{{ page_obj.paginator.count }} en total</span>
+      {% if busqueda %}
+        <span class="mini" id="conteo-resultados">
+          {{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }} para «{{ busqueda }}»
+        </span>
+      {% else %}
+        <span class="mini">{{ page_obj.paginator.count }} en total</span>
+      {% endif %}
     </div>
     <div class="card-body p-0">
-      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Todavía no has radicado ningún requerimiento." %}
+      {% comment %}
+        La columna de estado se agrega a la tabla compartida cuando HU-23 cree
+        el campo `estado` en el modelo.
+      {% endcomment %}
+      {% if busqueda %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Ningún requerimiento tuyo coincide con esa búsqueda." %}
+      {% else %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Todavía no has radicado ningún requerimiento." %}
+      {% endif %}
     </div>
   </div>
 
