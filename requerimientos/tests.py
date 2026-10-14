@@ -1,4 +1,5 @@
 import csv
+import re
 import shutil
 import smtplib
 import tempfile
@@ -3280,3 +3281,58 @@ class ReglasAdjuntosBordesTests(TestCase):
 
     def test_el_campo_vacio_devuelve_una_lista_vacia(self):
         self.assertEqual(VariosArchivosField(required=False).clean(None), [])
+
+
+class FotoDesdeMovilTests(MediaTemporalMixin, VistaTestCase):
+    """HU-12: el solicitante toma la foto con la cámara del celular."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def test_ofrece_abrir_la_camara_trasera(self):
+        respuesta = self.client.get(self.url)
+        html = respuesta.content.decode()
+        campo = re.search(r'<input type="file" id="id_camara"[^>]*>', html).group(0)
+        self.assertIn('accept="image/*"', campo)
+        # `environment` es la cámara trasera: la que apunta al artículo.
+        self.assertIn('capture="environment"', campo)
+
+    def test_el_selector_de_camara_no_se_envia_por_si_mismo(self):
+        # Sin `name`, el navegador no lo manda: cada toma viaja en su propio
+        # campo oculto, y así no llega duplicada.
+        html = self.client.get(self.url).content.decode()
+        campo = re.search(r'<input type="file" id="id_camara"[^>]*>', html).group(0)
+        self.assertNotIn("name=", campo)
+
+    def test_las_fotos_de_la_camara_se_suman_a_lo_elegido_en_el_selector(self):
+        # El navegador manda todo bajo el mismo nombre de campo: lo del selector
+        # general y cada toma de la cámara.
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Válvula dañada en campo.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+            "archivos": [
+                archivo("ficha.pdf", CONTENIDO_PDF),
+                archivo("foto-camara-1.jpg", CONTENIDO_JPG),
+                archivo("foto-camara-2.jpg", CONTENIDO_JPG),
+            ],
+        }
+        self.client.post(self.url, datos)
+
+        adjuntos = Requerimiento.objects.get().adjuntos.all()
+        self.assertEqual(
+            [(a.nombre_original, a.tipo) for a in adjuntos],
+            [
+                ("ficha.pdf", Adjunto.Tipo.DOCUMENTO),
+                ("foto-camara-1.jpg", Adjunto.Tipo.FOTO),
+                ("foto-camara-2.jpg", Adjunto.Tipo.FOTO),
+            ],
+        )

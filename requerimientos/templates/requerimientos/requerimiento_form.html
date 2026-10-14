@@ -231,6 +231,24 @@
 
         <label for="{{ adjuntos.archivos.id_for_label }}" class="form-label">Adjuntar archivos</label>
         {{ adjuntos.archivos }}
+
+        {# HU-12: en el celular, la foto se toma directamente con la cámara. #}
+        {# El selector no lleva `name`: cada toma pasa a un campo oculto de #}
+        {# `#tomas-camara`, para que se acumulen en vez de reemplazarse. #}
+        <div class="tomar-foto" id="bloque-camara">
+          <label class="btn btn-outline-secondary btn-sm" for="id_camara">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+            Tomar foto con la cámara
+          </label>
+          <input type="file" id="id_camara" accept="image/*" capture="environment"
+                 class="visually-hidden">
+        </div>
+        <div id="tomas-camara" hidden></div>
+
         <div class="form-text">{{ adjuntos.ayuda }}</div>
         {% for error in adjuntos.archivos.errors %}
           <div class="invalid-feedback d-block">{{ error }}</div>
@@ -373,9 +391,12 @@
       document.getElementById("resumen-prioridad").textContent = texto("id_prioridad");
       document.getElementById("resumen-fecha").textContent = texto("id_fecha_requerida");
       document.getElementById("resumen-items").textContent = contarItems();
-      // HU-11: cuántos archivos van, para que no se radique sin el soporte.
-      var selector = document.getElementById("id_archivos");
-      var cuantos = selector && selector.files ? selector.files.length : 0;
+      // HU-11 y HU-12: cuántos archivos van, sumando las fotos de la cámara.
+      var cuantos = Array.prototype.reduce.call(
+        formulario.querySelectorAll('input[type="file"][name="archivos"]'),
+        function (total, campo) { return total + (campo.files ? campo.files.length : 0); },
+        0
+      );
       document.getElementById("resumen-adjuntos").textContent =
         cuantos ? cuantos + " archivo" + (cuantos === 1 ? "" : "s") : "Ninguno";
       modal.show();
@@ -552,11 +573,13 @@
 
 {{ limite_adjuntos|json_script:"limite-adjuntos" }}
 <script>
-  // HU-11: muestra lo que se va a adjuntar y avisa de inmediato lo que no va a
-  // pasar (tipo o tamaño), sin esperar a enviar. Es solo una ayuda: el servidor
-  // vuelve a revisarlo todo, incluido el contenido real de cada archivo.
+  // HU-11 y HU-12: muestra lo que se va a adjuntar y avisa de inmediato lo que
+  // no va a pasar (tipo o tamaño), sin esperar a enviar. Es solo una ayuda: el
+  // servidor vuelve a revisarlo todo, incluido el contenido real de cada archivo.
   document.addEventListener("DOMContentLoaded", function () {
     var selector = document.getElementById("id_archivos");
+    var camara = document.getElementById("id_camara");
+    var tomas = document.getElementById("tomas-camara");
     var lista = document.getElementById("lista-seleccionados");
     if (!selector || !lista) return;
 
@@ -564,6 +587,12 @@
     var MAXIMO = limites.maximo;
     var TAMANO_MAXIMO = limites.tamano;
     var EXTENSIONES = limites.extensiones;
+
+    // HU-12: para acumular fotos hace falta mover cada toma a su propio campo,
+    // y eso necesita DataTransfer. Si el navegador no lo tiene, la cámara queda
+    // como un campo más y guarda una sola foto: menos cómodo, pero funciona.
+    var puedeAcumular = typeof DataTransfer !== "undefined";
+    if (camara && !puedeAcumular) camara.name = "archivos";
 
     function peso(bytes) {
       if (bytes < 1024) return bytes + " B";
@@ -576,38 +605,94 @@
       return punto === -1 ? "" : nombre.slice(punto).toLowerCase();
     }
 
-    selector.addEventListener("change", function () {
+    function problemaDe(archivo) {
+      if (EXTENSIONES.indexOf(extension(archivo.name)) === -1) return "tipo no admitido";
+      if (archivo.size > TAMANO_MAXIMO) return "supera " + peso(TAMANO_MAXIMO);
+      return "";
+    }
+
+    function fila(archivo, campoDeLaToma) {
+      var problema = problemaDe(archivo);
+      var item = document.createElement("li");
+      item.className = problema ? "con-problema" : "";
+
+      var nombre = document.createElement("span");
+      nombre.className = "nombre";
+      nombre.textContent = (campoDeLaToma ? "📷 " : "") + archivo.name;
+      item.appendChild(nombre);
+
+      var detalle = document.createElement("span");
+      detalle.className = "detalle";
+      detalle.textContent = problema || peso(archivo.size);
+      item.appendChild(detalle);
+
+      // Una foto mal tomada se quita sin tener que empezar de nuevo.
+      if (campoDeLaToma) {
+        var quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "btn btn-link btn-sm p-0 quitar-toma";
+        quitar.textContent = "Quitar";
+        quitar.addEventListener("click", function () {
+          campoDeLaToma.remove();
+          pintar();
+        });
+        item.appendChild(quitar);
+      }
+      return item;
+    }
+
+    function pintar() {
       lista.innerHTML = "";
-      var archivos = Array.prototype.slice.call(selector.files || []);
-      lista.hidden = archivos.length === 0;
+      var total = 0;
 
-      archivos.forEach(function (archivo) {
-        var problema = "";
-        if (EXTENSIONES.indexOf(extension(archivo.name)) === -1) {
-          problema = "tipo no admitido";
-        } else if (archivo.size > TAMANO_MAXIMO) {
-          problema = "supera " + peso(TAMANO_MAXIMO);
-        }
-        var fila = document.createElement("li");
-        fila.className = problema ? "con-problema" : "";
-        var nombre = document.createElement("span");
-        nombre.className = "nombre";
-        nombre.textContent = archivo.name;
-        var detalle = document.createElement("span");
-        detalle.className = "detalle";
-        detalle.textContent = problema || peso(archivo.size);
-        fila.appendChild(nombre);
-        fila.appendChild(detalle);
-        lista.appendChild(fila);
+      Array.prototype.forEach.call(selector.files || [], function (archivo) {
+        lista.appendChild(fila(archivo, null));
+        total++;
       });
+      if (tomas) {
+        Array.prototype.forEach.call(tomas.querySelectorAll("input"), function (campo) {
+          if (campo.files && campo.files[0]) {
+            lista.appendChild(fila(campo.files[0], campo));
+            total++;
+          }
+        });
+      }
 
-      if (archivos.length > MAXIMO) {
+      if (total > MAXIMO) {
         var aviso = document.createElement("li");
         aviso.className = "con-problema";
-        aviso.textContent = "Seleccionaste " + archivos.length + " archivos; el máximo es " + MAXIMO + ".";
+        aviso.textContent = "Llevas " + total + " archivos; el máximo es " + MAXIMO + ".";
         lista.appendChild(aviso);
       }
-    });
+      lista.hidden = total === 0;
+    }
+
+    selector.addEventListener("change", pintar);
+
+    if (camara && puedeAcumular && tomas) {
+      camara.addEventListener("change", function () {
+        var foto = camara.files && camara.files[0];
+        if (!foto) return;
+        // Cada toma lleva un nombre propio: la cámara suele llamarlas todas
+        // igual ("image.jpg") y así se distinguen en la lista y en la ficha.
+        var numero = tomas.querySelectorAll("input").length + 1;
+        var nombre = "foto-camara-" + numero + (extension(foto.name) || ".jpg");
+        var renombrada = new File([foto], nombre, { type: foto.type });
+
+        var campo = document.createElement("input");
+        campo.type = "file";
+        campo.name = "archivos";
+        campo.hidden = true;
+        var transferencia = new DataTransfer();
+        transferencia.items.add(renombrada);
+        campo.files = transferencia.files;
+        tomas.appendChild(campo);
+
+        // Se vacía para que la próxima toma dispare otra vez el evento.
+        camara.value = "";
+        pintar();
+      });
+    }
   });
 </script>
 

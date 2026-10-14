@@ -948,3 +948,27 @@ h1, h2, h3, h4 {
   background: #fdf2f0;
 }
 
+/* HU-12: tomar la foto con la cámara del celular. */
+.tomar-foto {
+  margin-top: 8px;
+}
+
+.tomar-foto .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* En un computador con mouse el atributo `capture` no abre la cámara, solo el
+   selector de archivos que ya está arriba: el botón sobraría. */
+@media (hover: hover) and (pointer: fine) {
+  .tomar-foto {
+    display: none;
+  }
+}
+
+.lista-seleccionados .quitar-toma {
+  flex: none;
+  font-size: 12px;
+  color: var(--alerta);
+}
