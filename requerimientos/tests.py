@@ -1,8 +1,12 @@
+import csv
+import shutil
 import smtplib
+import tempfile
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
+from pathlib import Path
 from unittest import mock, skipUnless
 
 from django.conf import settings
@@ -2197,3 +2201,108 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(
             list(self._demo().values_list("area__nombre", "prioridad__nombre")), primero
         )
+
+
+class ExportarAnaliticaTests(TestCase):
+    """Exportación de las vistas analíticas a CSV (apoyo a HU-30)."""
+
+    def setUp(self):
+        self.destino = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.destino, True)
+        self.area = Area.objects.create(nombre="Logística")
+        self.centro = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+
+    def _requerimiento(self, precio=None):
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Reposición de insumos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=1,
+            cantidad=2,
+            unidad_medida=self.unidad,
+            descripcion="Resma de papel carta",
+            precio_referencia=precio,
+        )
+        return requerimiento
+
+    def _exportar(self):
+        salida = StringIO()
+        call_command("exportar_analitica", destino=str(self.destino), stdout=salida)
+        return salida.getvalue()
+
+    def _leer(self, vista):
+        """Exporta y devuelve el contenido del CSV de esa vista."""
+        self._exportar()
+        archivo = self.destino / f"{vista}.csv"
+        # `utf-8-sig` descarta la marca BOM al leer, igual que hace Power BI.
+        with archivo.open(encoding="utf-8-sig", newline="") as entrada:
+            return list(csv.DictReader(entrada))
+
+    def test_escribe_un_csv_por_vista(self):
+        self._requerimiento()
+        self._exportar()
+        for vista in ("analitica_requerimientos", "analitica_items"):
+            with self.subTest(vista=vista):
+                self.assertTrue((self.destino / f"{vista}.csv").exists())
+
+    def test_exporta_una_fila_por_requerimiento(self):
+        self._requerimiento()
+        self._requerimiento()
+        self.assertEqual(len(self._leer("analitica_requerimientos")), 2)
+
+    def test_el_csv_lleva_las_columnas_que_el_tablero_necesita(self):
+        self._requerimiento()
+        fila = self._leer("analitica_requerimientos")[0]
+        for columna in ("consecutivo", "area", "prioridad", "anio_solicitud", "mes_solicitud"):
+            with self.subTest(columna=columna):
+                self.assertIn(columna, fila)
+
+    def test_las_tildes_sobreviven_a_la_exportacion(self):
+        # Sin la marca BOM, Power BI leeria «LogÃ­stica» en vez de «Logística».
+        self._requerimiento()
+        self.assertEqual(self._leer("analitica_requerimientos")[0]["area"], "Logística")
+
+    def test_el_archivo_empieza_con_la_marca_bom(self):
+        self._requerimiento()
+        self._exportar()
+        crudo = (self.destino / "analitica_requerimientos.csv").read_bytes()
+        self.assertTrue(crudo.startswith(b"\xef\xbb\xbf"))
+
+    def test_las_fechas_salen_en_formato_iso(self):
+        # Con 13/10/2026 Power BI podria leer el mes y el dia al reves.
+        self._requerimiento()
+        fila = self._leer("analitica_requerimientos")[0]
+        self.assertEqual(fila["fecha_solicitud"], date.today().isoformat())
+
+    def test_un_precio_ausente_sale_como_celda_vacia(self):
+        self._requerimiento(precio=None)
+        self.assertEqual(self._leer("analitica_items")[0]["precio_referencia"], "")
+
+    def test_el_precio_se_exporta_con_punto_decimal(self):
+        # Lo que importa no es cuantos decimales queden, sino que el separador
+        # sea punto: con coma, Power BI leeria 24.500,50 como texto y no como
+        # numero, y la grafica de totales saldria vacia.
+        self._requerimiento(precio=Decimal("24500.50"))
+        crudo = self._leer("analitica_items")[0]["precio_referencia"]
+        self.assertNotIn(",", crudo)
+        self.assertEqual(Decimal(crudo), Decimal("24500.50"))
+
+    def test_crea_la_carpeta_destino_si_no_existe(self):
+        self._requerimiento()
+        nueva = self.destino / "subcarpeta" / "analitica"
+        call_command("exportar_analitica", destino=str(nueva), stdout=StringIO())
+        self.assertTrue((nueva / "analitica_requerimientos.csv").exists())
+
+    def test_sin_requerimientos_escribe_solo_los_encabezados(self):
+        self._exportar()
+        self.assertEqual(self._leer("analitica_requerimientos"), [])
+        crudo = (self.destino / "analitica_requerimientos.csv").read_text(encoding="utf-8-sig")
+        self.assertIn("consecutivo", crudo.splitlines()[0])

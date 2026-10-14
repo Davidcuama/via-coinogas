@@ -92,7 +92,16 @@ python manage.py sembrar_demo --limpiar                 # quitar lo sembrado
 
 Solo corre con `DEBUG=True`: son datos falsos y no deben entrar por accidente a un entorno
 real. Las cuentas que crea llevan el prefijo `demo.`, que es lo que permite borrar después
-solo lo sembrado. Con `--semilla N` se obtiene siempre el mismo conjunto. Detalles en la
+solo lo sembrado. Con `--semilla N` se obtiene siempre el mismo conjunto.
+
+Para construir el tablero de indicadores hace falta además volcar las vistas analíticas a CSV,
+porque Power BI Desktop no tiene conector nativo para SQLite:
+
+```bash
+python manage.py exportar_analitica      # escribe analitica/*.csv
+```
+
+Los CSV no se versionan (son regenerables). El paso a paso para armar el tablero está en la
 [Wiki](../../wiki/Tablero-de-Indicadores).
 
 Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.

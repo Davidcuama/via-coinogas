@@ -22,6 +22,11 @@ docker-compose.override.yml
 # Power BI
 *.pbix.bak
 
+# Analitica: los CSV son un volcado regenerable de las vistas (HU-29) para
+# construir el tablero. El .pbix si se versiona: en modo Importar guarda los
+# datos dentro, asi que el tablero se ve al abrirlo aunque no haya CSV.
+analitica/*.csv
+
 # Editores
 .vscode/
 .idea/
