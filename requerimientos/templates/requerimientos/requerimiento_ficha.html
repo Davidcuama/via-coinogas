@@ -121,6 +121,18 @@
     </p>
   {% endif %}
 
+  {# HU-14: alternativas que el solicitante conoce. #}
+  <div class="card mb-4" id="productos-sustitutos">
+    <div class="card-header"><h2>Alternativas o productos sustitutos</h2></div>
+    <div class="card-body">
+      {% if requerimiento.hay_sustitutos %}
+        <p class="mb-0">{{ requerimiento.sustitutos|linebreaksbr }}</p>
+      {% else %}
+        <p class="text-muted mb-0">El solicitante indicó que no hay sustitutos.</p>
+      {% endif %}
+    </div>
+  </div>
+
   {# HU-13: proveedores que sugirió el solicitante, para arrancar la cotización. #}
   <div class="card mb-4" id="proveedores-sugeridos">
     <div class="card-header"><h2>Proveedores sugeridos</h2></div>

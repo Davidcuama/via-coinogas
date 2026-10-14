@@ -193,6 +193,25 @@
       </div>
     </div>
 
+    {# HU-14: alternativas o productos sustitutos. Se responde sí o no; si es #}
+    {# sí, hay que decir cuáles. #}
+    <div class="card mb-4" id="productos-sustitutos">
+      <div class="card-header"><h2>Alternativas o productos sustitutos</h2></div>
+      <div class="card-body">
+        <div class="form-check mb-2">
+          {{ form.hay_sustitutos }}
+          <label class="form-check-label" for="{{ form.hay_sustitutos.id_for_label }}">
+            Sí, existen productos o servicios que pueden reemplazar lo solicitado
+          </label>
+        </div>
+        <div id="bloque-sustitutos"{% if not form.hay_sustitutos.value %} hidden{% endif %}>
+          <label for="{{ form.sustitutos.id_for_label }}" class="form-label">¿Cuáles?</label>
+          {{ form.sustitutos }}
+          {% for error in form.sustitutos.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+
     <div class="d-flex gap-2">
       {# HU-34: este botón no envía directo; abre el aviso de confirmación. El #}
       {# envío real lo hace el botón del modal, para evitar radicaciones por error. #}
@@ -344,6 +363,29 @@
     }
     textarea.addEventListener("input", actualizarContador);
     actualizarContador();
+  });
+</script>
+
+<script>
+  // HU-14: la descripción de los sustitutos solo aparece si se marcó que hay.
+  // El servidor decide de todas formas: si la casilla va marcada y la
+  // descripción vacía, rechaza la radicación.
+  document.addEventListener("DOMContentLoaded", function () {
+    var casilla = document.getElementById("id_hay_sustitutos");
+    var bloque = document.getElementById("bloque-sustitutos");
+    var texto = document.getElementById("id_sustitutos");
+    if (!casilla || !bloque || !texto) return;
+
+    function sincronizar() {
+      bloque.hidden = !casilla.checked;
+      // Solo es obligatoria (también para la validación del navegador) si hay sustitutos.
+      texto.required = casilla.checked;
+    }
+    casilla.addEventListener("change", function () {
+      sincronizar();
+      if (casilla.checked) texto.focus();
+    });
+    sincronizar();
   });
 </script>
 
