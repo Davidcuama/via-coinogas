@@ -1,7 +1,12 @@
+import csv
+import shutil
 import smtplib
+import tempfile
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
+from io import StringIO
+from pathlib import Path
 from unittest import mock, skipUnless
 
 from django.conf import settings
@@ -10,6 +15,8 @@ from django.contrib.auth.models import AnonymousUser, Group
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
@@ -2092,3 +2099,210 @@ class MisRequerimientosTests(VistaTestCase):
         respuesta = self.client.get(self.url)
         self.assertNotContains(respuesta, "{#")
         self.assertNotContains(respuesta, "#}")
+
+
+@override_settings(DEBUG=True)
+class SembrarDemoTests(TestCase):
+    """Comando de datos de demostración (apoyo a HU-30)."""
+
+    def _sembrar(self, **opciones):
+        salida = StringIO()
+        call_command("sembrar_demo", stdout=salida, semilla=7, **opciones)
+        return salida.getvalue()
+
+    def _demo(self):
+        return Requerimiento.objects.filter(creado_por__username__startswith="demo.")
+
+    def test_siembra_la_cantidad_pedida(self):
+        self._sembrar(cantidad=12)
+        self.assertEqual(self._demo().count(), 12)
+
+    def test_los_requerimientos_quedan_repartidos_entre_areas_y_prioridades(self):
+        # Si todo cayera en la misma área, el tablero saldría con una sola barra.
+        self._sembrar(cantidad=40)
+        self.assertGreaterEqual(Area.objects.count(), 3)
+        self.assertEqual(self._demo().values("prioridad").distinct().count(), 3)
+        self.assertGreaterEqual(self._demo().values("area").distinct().count(), 3)
+
+    def test_los_requerimientos_quedan_repartidos_en_el_tiempo(self):
+        # El indicador de volumen por mes necesita más de un mes con datos.
+        self._sembrar(cantidad=40, meses=6)
+        fechas = set(self._demo().values_list("fecha_solicitud", flat=True))
+        self.assertGreater(len({(f.year, f.month) for f in fechas}), 1)
+
+    def test_cada_requerimiento_queda_con_items(self):
+        self._sembrar(cantidad=10)
+        for requerimiento in self._demo():
+            with self.subTest(consecutivo=requerimiento.consecutivo):
+                self.assertGreaterEqual(requerimiento.items.count(), 1)
+
+    def test_algunos_items_quedan_sin_precio(self):
+        # Para que se vea el aviso de total parcial de HU-10.
+        self._sembrar(cantidad=40)
+        self.assertTrue(Item.objects.filter(precio_referencia__isnull=True).exists())
+
+    def test_la_fecha_requerida_nunca_es_anterior_a_la_de_solicitud(self):
+        self._sembrar(cantidad=40)
+        for requerimiento in self._demo():
+            with self.subTest(consecutivo=requerimiento.consecutivo):
+                self.assertGreaterEqual(
+                    requerimiento.fecha_requerida, requerimiento.fecha_solicitud
+                )
+
+    def test_no_siembra_dos_veces_sin_limpiar(self):
+        self._sembrar(cantidad=5)
+        with self.assertRaises(CommandError):
+            self._sembrar(cantidad=5)
+        self.assertEqual(self._demo().count(), 5)
+
+    def test_limpiar_borra_los_datos_de_demostracion_y_sus_cuentas(self):
+        self._sembrar(cantidad=5)
+        self._sembrar(limpiar=True)
+        self.assertEqual(self._demo().count(), 0)
+        self.assertEqual(get_user_model().objects.filter(username__startswith="demo.").count(), 0)
+
+    def test_limpiar_no_toca_los_requerimientos_reales(self):
+        propio = crear_usuario("ana.real", "Ana", "Real")
+        area = Area.objects.create(nombre="Área real")
+        centro = CentroCosto.objects.create(codigo="CC-999", nombre="Sede real")
+        prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        real = Requerimiento.objects.create(
+            solicitante="Ana Real",
+            area=area,
+            centro_costo=centro,
+            justificacion="Requerimiento de verdad.",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+            creado_por=propio,
+        )
+
+        self._sembrar(cantidad=5)
+        self._sembrar(limpiar=True)
+
+        self.assertTrue(Requerimiento.objects.filter(pk=real.pk).exists())
+        self.assertTrue(get_user_model().objects.filter(username="ana.real").exists())
+
+    @override_settings(DEBUG=False)
+    def test_se_niega_a_correr_en_un_entorno_que_parece_real(self):
+        with self.assertRaises(CommandError):
+            self._sembrar(cantidad=5)
+        self.assertEqual(self._demo().count(), 0)
+
+    @override_settings(DEBUG=False)
+    def test_con_forzar_corre_aunque_debug_este_apagado(self):
+        self._sembrar(cantidad=3, forzar=True)
+        self.assertEqual(self._demo().count(), 3)
+
+    def test_la_misma_semilla_produce_el_mismo_conjunto(self):
+        self._sembrar(cantidad=8)
+        primero = list(self._demo().values_list("area__nombre", "prioridad__nombre"))
+        self._sembrar(limpiar=True)
+        self._sembrar(cantidad=8)
+        self.assertEqual(
+            list(self._demo().values_list("area__nombre", "prioridad__nombre")), primero
+        )
+
+
+class ExportarAnaliticaTests(TestCase):
+    """Exportación de las vistas analíticas a CSV (apoyo a HU-30)."""
+
+    def setUp(self):
+        self.destino = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.destino, True)
+        self.area = Area.objects.create(nombre="Logística")
+        self.centro = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+
+    def _requerimiento(self, precio=None):
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Reposición de insumos.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=1,
+            cantidad=2,
+            unidad_medida=self.unidad,
+            descripcion="Resma de papel carta",
+            precio_referencia=precio,
+        )
+        return requerimiento
+
+    def _exportar(self):
+        salida = StringIO()
+        call_command("exportar_analitica", destino=str(self.destino), stdout=salida)
+        return salida.getvalue()
+
+    def _leer(self, vista):
+        """Exporta y devuelve el contenido del CSV de esa vista."""
+        self._exportar()
+        archivo = self.destino / f"{vista}.csv"
+        # `utf-8-sig` descarta la marca BOM al leer, igual que hace Power BI.
+        with archivo.open(encoding="utf-8-sig", newline="") as entrada:
+            return list(csv.DictReader(entrada))
+
+    def test_escribe_un_csv_por_vista(self):
+        self._requerimiento()
+        self._exportar()
+        for vista in ("analitica_requerimientos", "analitica_items"):
+            with self.subTest(vista=vista):
+                self.assertTrue((self.destino / f"{vista}.csv").exists())
+
+    def test_exporta_una_fila_por_requerimiento(self):
+        self._requerimiento()
+        self._requerimiento()
+        self.assertEqual(len(self._leer("analitica_requerimientos")), 2)
+
+    def test_el_csv_lleva_las_columnas_que_el_tablero_necesita(self):
+        self._requerimiento()
+        fila = self._leer("analitica_requerimientos")[0]
+        for columna in ("consecutivo", "area", "prioridad", "anio_solicitud", "mes_solicitud"):
+            with self.subTest(columna=columna):
+                self.assertIn(columna, fila)
+
+    def test_las_tildes_sobreviven_a_la_exportacion(self):
+        # Sin la marca BOM, Power BI leeria «LogÃ­stica» en vez de «Logística».
+        self._requerimiento()
+        self.assertEqual(self._leer("analitica_requerimientos")[0]["area"], "Logística")
+
+    def test_el_archivo_empieza_con_la_marca_bom(self):
+        self._requerimiento()
+        self._exportar()
+        crudo = (self.destino / "analitica_requerimientos.csv").read_bytes()
+        self.assertTrue(crudo.startswith(b"\xef\xbb\xbf"))
+
+    def test_las_fechas_salen_en_formato_iso(self):
+        # Con 13/10/2026 Power BI podria leer el mes y el dia al reves.
+        self._requerimiento()
+        fila = self._leer("analitica_requerimientos")[0]
+        self.assertEqual(fila["fecha_solicitud"], date.today().isoformat())
+
+    def test_un_precio_ausente_sale_como_celda_vacia(self):
+        self._requerimiento(precio=None)
+        self.assertEqual(self._leer("analitica_items")[0]["precio_referencia"], "")
+
+    def test_el_precio_se_exporta_con_punto_decimal(self):
+        # Lo que importa no es cuantos decimales queden, sino que el separador
+        # sea punto: con coma, Power BI leeria 24.500,50 como texto y no como
+        # numero, y la grafica de totales saldria vacia.
+        self._requerimiento(precio=Decimal("24500.50"))
+        crudo = self._leer("analitica_items")[0]["precio_referencia"]
+        self.assertNotIn(",", crudo)
+        self.assertEqual(Decimal(crudo), Decimal("24500.50"))
+
+    def test_crea_la_carpeta_destino_si_no_existe(self):
+        self._requerimiento()
+        nueva = self.destino / "subcarpeta" / "analitica"
+        call_command("exportar_analitica", destino=str(nueva), stdout=StringIO())
+        self.assertTrue((nueva / "analitica_requerimientos.csv").exists())
+
+    def test_sin_requerimientos_escribe_solo_los_encabezados(self):
+        self._exportar()
+        self.assertEqual(self._leer("analitica_requerimientos"), [])
+        crudo = (self.destino / "analitica_requerimientos.csv").read_text(encoding="utf-8-sig")
+        self.assertIn("consecutivo", crudo.splitlines()[0])
