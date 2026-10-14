@@ -1,0 +1,16 @@
+{% autoescape off %}El requerimiento {{ requerimiento.consecutivo }} volvió corregido y está otra vez en la bandeja.
+
+Solicitante: {{ requerimiento.solicitante }}
+Prioridad:   {{ requerimiento.prioridad }}
+Reenviado:   {{ cambio.fecha|date:"d/m/Y H:i" }}
+{% if cambio.observacion %}
+Mensaje del solicitante:
+{{ cambio.observacion }}
+{% endif %}
+Ver la ficha:
+{{ enlace }}
+
+--
+VIA Compras - Coinogas
+Mensaje automático, no responder a este correo.
+{% endautoescape %}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, Helvetica, sans-serif; color: #212529;">
+  <p>Un requerimiento devuelto volvió corregido y está otra vez en la bandeja.</p>
+
+  <p style="font-size: 20px; font-weight: bold; margin: 16px 0;">
+    {{ requerimiento.consecutivo }}
+  </p>
+
+  <table cellpadding="6" cellspacing="0" border="0">
+    <tr><td><strong>Solicitante</strong></td><td>{{ requerimiento.solicitante }}</td></tr>
+    <tr><td><strong>Prioridad</strong></td><td>{{ requerimiento.prioridad }}</td></tr>
+    <tr><td><strong>Reenviado</strong></td><td>{{ cambio.fecha|date:"d/m/Y H:i" }}</td></tr>
+  </table>
+
+  {% if cambio.observacion %}
+    <p><strong>Mensaje del solicitante</strong></p>
+    <blockquote style="margin: 0 0 16px; padding: 12px 16px; background: #eaf5fc;
+                       border-left: 4px solid #0078be;">
+      {{ cambio.observacion|linebreaksbr }}
+    </blockquote>
+  {% endif %}
+
+  <p><a href="{{ enlace }}">Ver la ficha del requerimiento</a></p>
+
+  <hr>
+  <p style="color: #6c757d; font-size: 12px;">
+    VIA Compras — Coinogas. Mensaje automático, no responder a este correo.
+  </p>
+</body>
+</html>

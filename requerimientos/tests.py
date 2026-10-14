@@ -31,6 +31,7 @@ from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .forms import (
     CAMPOS_OBLIGATORIOS,
     AdjuntosForm,
+    CambioEstadoForm,
     ItemForm,
     RequerimientoForm,
     VariosArchivosField,
@@ -3532,3 +3533,451 @@ class EstadoEnListadosTests(VistaTestCase):
         respuesta = self.client.get(reverse("requerimientos:mios"))
         self.assertContains(respuesta, "En revisión")
         self.assertContains(respuesta, "Radicado")
+
+
+# --- HU-24: devolución con observaciones ------------------------------------
+
+OBSERVACION_VALIDA = "Falta la referencia exacta del manómetro y una foto de la placa."
+
+
+def requerimiento_con_items(creado_por, descripciones=("Manómetro", "Termómetro", "Cronómetro")):
+    """Requerimiento con varios ítems numerados, para probar la corrección."""
+    requerimiento = crear_requerimiento(creado_por=creado_por)
+    unidad, _ = UnidadMedida.objects.get_or_create(codigo="UND", defaults={"nombre": "Unidad"})
+    for numero, descripcion in enumerate(descripciones, start=1):
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=numero,
+            cantidad=numero,
+            unidad_medida=unidad,
+            descripcion=descripcion,
+        )
+    return requerimiento
+
+
+def datos_correccion(requerimiento, **cambios):
+    """POST de la pantalla de corrección, con lo que el requerimiento ya tiene."""
+    items = list(requerimiento.items.order_by("numero"))
+    datos = {
+        "solicitante": requerimiento.solicitante,
+        "area": requerimiento.area_id,
+        "centro_costo": requerimiento.centro_costo_id,
+        "justificacion": requerimiento.justificacion,
+        "prioridad": requerimiento.prioridad_id,
+        "fecha_requerida": requerimiento.fecha_requerida.isoformat(),
+        "items-TOTAL_FORMS": str(len(items)),
+        "items-INITIAL_FORMS": str(len(items)),
+        "items-MIN_NUM_FORMS": "1",
+        "items-MAX_NUM_FORMS": "1000",
+    }
+    for indice, item in enumerate(items):
+        datos.update(
+            {
+                f"items-{indice}-id": item.pk,
+                f"items-{indice}-cantidad": item.cantidad,
+                f"items-{indice}-unidad_medida": item.unidad_medida_id,
+                f"items-{indice}-descripcion": item.descripcion,
+            }
+        )
+    datos.update(cambios)
+    return datos
+
+
+class DevolucionModeloTests(TestCase):
+    """HU-24: reglas de la devolución, sin pasar por las vistas."""
+
+    def setUp(self):
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = crear_requerimiento()
+
+    def test_se_devuelve_con_una_observacion(self):
+        cambio = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(cambio.observacion, OBSERVACION_VALIDA)
+        self.assertEqual(self.requerimiento.ultima_devolucion, cambio)
+
+    def test_no_se_devuelve_sin_decir_que_falta(self):
+        for observacion in ("", "   ", "falta"):
+            with (
+                self.subTest(observacion=observacion),
+                self.assertRaisesMessage(TransicionNoPermitidaError, "explica qué falta"),
+            ):
+                self.requerimiento.cambiar_estado(
+                    EstadoRequerimiento.DEVUELTO, self.analista, observacion
+                )
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_se_puede_devolver_en_revision_y_en_cotizacion(self):
+        for antes in (EstadoRequerimiento.EN_REVISION, EstadoRequerimiento.EN_COTIZACION):
+            with self.subTest(desde=antes):
+                requerimiento = crear_requerimiento()
+                requerimiento.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.analista)
+                if antes == EstadoRequerimiento.EN_COTIZACION:
+                    requerimiento.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, self.analista)
+                requerimiento.cambiar_estado(
+                    EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+                )
+                self.assertEqual(requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_lo_cerrado_ya_no_se_devuelve(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.analista)
+        with self.assertRaises(TransicionNoPermitidaError):
+            self.requerimiento.cambiar_estado(
+                EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+            )
+
+    def test_de_devuelto_solo_se_sale_volviendo_a_radicado(self):
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.assertEqual(self.requerimiento.estados_siguientes(), (EstadoRequerimiento.RADICADO,))
+
+    def test_la_ultima_devolucion_es_la_mas_reciente(self):
+        solicitante = crear_usuario("ana.gomez", perfil=perfiles.SOLICITANTE)
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, "Primera devolución, falta la foto."
+        )
+        self.requerimiento.cambiar_estado(EstadoRequerimiento.RADICADO, solicitante)
+        segunda = self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, "Segunda devolución, la foto está borrosa."
+        )
+        self.assertEqual(self.requerimiento.ultima_devolucion, segunda)
+
+    def test_los_botones_de_estado_no_ofrecen_devolver(self):
+        # Devolver tiene su propio formulario, que exige la observación.
+        formulario = CambioEstadoForm(requerimiento=self.requerimiento)
+        opciones = [valor for valor, _ in formulario.fields["estado"].choices]
+        self.assertNotIn(EstadoRequerimiento.DEVUELTO, opciones)
+
+    def test_mientras_esta_devuelto_compras_no_lo_mueve(self):
+        # Lo saca el solicitante cuando corrige, no compras.
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        formulario = CambioEstadoForm(requerimiento=self.requerimiento)
+        self.assertEqual(formulario.fields["estado"].choices, [])
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class DevolverVistaTests(VistaTestCase):
+    """HU-24: el analista devuelve el requerimiento desde la ficha."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.solicitante = crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE)
+        self.solicitante.email = "luis.mesa@coinogas.com"
+        self.solicitante.save()
+        self.requerimiento = crear_requerimiento(creado_por=self.solicitante)
+        self.url = reverse("requerimientos:devolver", args=[self.requerimiento.consecutivo])
+        self.ficha = reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+
+    def _devolver(self, observacion=OBSERVACION_VALIDA, **opciones):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, {"devolucion-observacion": observacion}, **opciones)
+
+    def test_el_analista_devuelve_con_su_observacion(self):
+        respuesta = self._devolver()
+
+        self.assertRedirects(respuesta, self.ficha)
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        cambio = self.requerimiento.ultima_devolucion
+        self.assertEqual((cambio.usuario, cambio.observacion), (self.usuario, OBSERVACION_VALIDA))
+
+    def test_al_solicitante_le_llega_la_observacion_y_el_enlace_para_corregir(self):
+        self._devolver()
+
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ["luis.mesa@coinogas.com"])
+        self.assertIn(self.requerimiento.consecutivo, correo.subject)
+        self.assertIn(OBSERVACION_VALIDA, correo.body)
+        enlace = reverse("requerimientos:corregir", args=[self.requerimiento.consecutivo])
+        self.assertIn(f"http://testserver{enlace}", correo.body)
+        # Y la versión HTML, para los clientes de correo que la muestran.
+        self.assertIn(OBSERVACION_VALIDA, correo.alternatives[0][0])
+
+    def test_sin_observacion_no_se_devuelve_y_se_conserva_lo_escrito(self):
+        respuesta = self._devolver("corto")
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Explica un poco más qué falta")
+        # Lo que alcanzó a escribir vuelve en el campo, no se pierde.
+        self.assertContains(respuesta, "corto</textarea>")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_una_observacion_rellena_de_espacios_no_cuenta(self):
+        self._devolver("      corto      ")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+
+    def test_lo_cerrado_no_se_puede_devolver(self):
+        for estado in (
+            EstadoRequerimiento.EN_REVISION,
+            EstadoRequerimiento.EN_COTIZACION,
+            EstadoRequerimiento.CERRADO,
+        ):
+            self.requerimiento.cambiar_estado(estado, self.usuario)
+
+        respuesta = self._devolver(follow=True)
+
+        self.assertContains(respuesta, "no puede pasar a «Devuelto»")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_sin_correo_registrado_se_devuelve_igual(self):
+        self.solicitante.email = ""
+        self.solicitante.save()
+        with self.assertLogs("requerimientos.notificaciones", level="WARNING"):
+            self._devolver()
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_si_el_servidor_de_correo_falla_la_devolucion_queda_hecha(self):
+        smtp_caido = mock.patch.object(
+            EmailMultiAlternatives, "send", side_effect=smtplib.SMTPException("caído")
+        )
+        with smtp_caido, self.assertLogs("requerimientos.notificaciones", level="ERROR"):
+            self._devolver()
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_el_solicitante_no_puede_devolver(self):
+        otro = Client()
+        otro.force_login(self.solicitante)
+        respuesta = otro.post(self.url, {"devolucion-observacion": OBSERVACION_VALIDA})
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_la_ficha_ofrece_devolver_y_luego_dice_que_espera_correccion(self):
+        self.assertContains(self.client.get(self.ficha), 'id="form-devolver"')
+        self._devolver()
+        respuesta = self.client.get(self.ficha)
+        self.assertNotContains(respuesta, 'id="form-devolver"')
+        self.assertContains(respuesta, 'id="esperando-correccion"')
+        self.assertContains(respuesta, OBSERVACION_VALIDA)
+
+
+@override_settings(COMPRAS_EMAILS=["compras@coinogas.com"])
+class CorregirRequerimientoTests(MediaTemporalMixin, VistaTestCase):
+    """HU-24: el solicitante corrige lo devuelto y lo reenvía."""
+
+    def setUp(self):
+        super().setUp()
+        self.analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.requerimiento = requerimiento_con_items(self.usuario)
+        self.requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, OBSERVACION_VALIDA
+        )
+        self.url = reverse("requerimientos:corregir", args=[self.requerimiento.consecutivo])
+
+    def _reenviar(self, datos):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, datos)
+
+    def test_la_pantalla_muestra_lo_que_pidio_compras_y_lo_ya_diligenciado(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'id="observacion-devolucion"')
+        self.assertContains(respuesta, OBSERVACION_VALIDA)
+        self.assertContains(respuesta, "Reenviar a compras")
+        # Precargado con lo que ya tenía, no en blanco.
+        self.assertContains(respuesta, self.requerimiento.justificacion)
+        self.assertContains(respuesta, "Termómetro")
+        # En corrección no hay borrador: el requerimiento ya existe.
+        self.assertNotContains(respuesta, 'id="guardar-borrador"')
+
+    def test_la_fecha_requerida_llega_en_el_formato_del_selector(self):
+        # Regresión: el selector de fecha solo entiende AAAA-MM-DD; en formato
+        # local (dd/mm/aaaa) el navegador lo dejaba en blanco al corregir.
+        respuesta = self.client.get(self.url)
+        fecha = self.requerimiento.fecha_requerida.isoformat()
+        self.assertContains(respuesta, f'value="{fecha}"')
+
+    def test_reenviar_guarda_las_correcciones_y_vuelve_a_radicado(self):
+        respuesta = self._reenviar(
+            datos_correccion(
+                self.requerimiento,
+                justificacion="Manómetro de glicerina, referencia WIKA 213.53, rosca 1/4.",
+                respuesta="Agregué la referencia exacta.",
+            )
+        )
+
+        self.assertRedirects(respuesta, reverse("requerimientos:mios"))
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.RADICADO)
+        self.assertIn("WIKA 213.53", self.requerimiento.justificacion)
+        reenvio = self.requerimiento.cambios_estado.last()
+        self.assertEqual(reenvio.estado_anterior, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(reenvio.observacion, "Agregué la referencia exacta.")
+        self.assertEqual(reenvio.usuario, self.usuario)
+
+    def test_conserva_el_consecutivo(self):
+        consecutivo = self.requerimiento.consecutivo
+        self._reenviar(datos_correccion(self.requerimiento))
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.consecutivo, consecutivo)
+        self.assertEqual(Requerimiento.objects.count(), 1)
+
+    def test_compras_se_entera_de_que_volvio_corregido(self):
+        self._reenviar(datos_correccion(self.requerimiento, respuesta="Ya está la foto."))
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ["compras@coinogas.com"])
+        self.assertIn("corregido y reenviado", correo.subject)
+        self.assertIn("Ya está la foto.", correo.body)
+
+    def test_editar_solo_el_tercer_item_no_choca_ni_reordena(self):
+        # Regresión: los ítems nuevos se numeraban desde 1 y, al editar, el
+        # tercero chocaba con el primero en la restricción de unicidad.
+        datos = datos_correccion(
+            self.requerimiento, **{"items-2-descripcion": "Cronómetro digital"}
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("numero", "descripcion")),
+            [(1, "Manómetro"), (2, "Termómetro"), (3, "Cronómetro digital")],
+        )
+
+    def test_quitar_un_item_y_agregar_otro_deja_la_numeracion_consecutiva(self):
+        datos = datos_correccion(self.requerimiento)
+        datos["items-1-DELETE"] = "on"
+        unidad = UnidadMedida.objects.get(codigo="UND")
+        datos.update(
+            {
+                "items-TOTAL_FORMS": "4",
+                "items-3-id": "",
+                "items-3-cantidad": "2",
+                "items-3-unidad_medida": unidad.pk,
+                "items-3-descripcion": "Barómetro",
+            }
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.items.values_list("numero", "descripcion")),
+            [(1, "Manómetro"), (2, "Cronómetro"), (3, "Barómetro")],
+        )
+
+    def test_los_proveedores_se_reemplazan_con_lo_que_quedo_en_pantalla(self):
+        ProveedorSugerido.objects.create(
+            requerimiento=self.requerimiento, orden=1, nombre="Viejo", telefono="6044441234"
+        )
+        datos = datos_correccion(
+            self.requerimiento,
+            proveedor_1_nombre="Instrumentos Andinos",
+            proveedor_1_telefono="300 123 4567",
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.proveedores_sugeridos.values_list("nombre", flat=True)),
+            ["Instrumentos Andinos"],
+        )
+
+    def test_se_puede_agregar_la_foto_que_faltaba_y_quitar_la_que_sobraba(self):
+        vieja = reglas_adjuntos.guardar(
+            self.requerimiento, [(archivo("borrosa.jpg"), Adjunto.Tipo.FOTO)], self.usuario
+        )[0]
+        datos = datos_correccion(
+            self.requerimiento,
+            quitar=[vieja.pk],
+            archivos=[archivo("placa-nitida.jpg")],
+        )
+        self._reenviar(datos)
+        self.assertEqual(
+            list(self.requerimiento.adjuntos.values_list("nombre_original", flat=True)),
+            ["placa-nitida.jpg"],
+        )
+
+    def test_el_maximo_de_adjuntos_cuenta_lo_que_ya_tenia(self):
+        reglas_adjuntos.guardar(
+            self.requerimiento,
+            [
+                (archivo(f"foto-{n}.jpg"), Adjunto.Tipo.FOTO)
+                for n in range(reglas_adjuntos.MAX_ADJUNTOS)
+            ],
+            self.usuario,
+        )
+        respuesta = self._reenviar(
+            datos_correccion(self.requerimiento, archivos=[archivo("una-mas.jpg")])
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "puedes sumar 0 más")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+
+    def test_con_errores_no_reenvia_ni_cambia_nada(self):
+        respuesta = self._reenviar(datos_correccion(self.requerimiento, justificacion=""))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "No se pudo reenviar el requerimiento.")
+        self.requerimiento.refresh_from_db()
+        self.assertEqual(self.requerimiento.estado, EstadoRequerimiento.DEVUELTO)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_un_requerimiento_ajeno_no_se_puede_corregir(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(otro.get(self.url).status_code, 404)
+
+    def test_lo_que_no_esta_devuelto_no_se_corrige(self):
+        self._reenviar(datos_correccion(self.requerimiento))
+        # Ya se reenvió: volver a la pantalla de corrección no tiene sentido.
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_sin_sesion_manda_al_ingreso(self):
+        anonimo = Client()
+        respuesta = anonimo.get(self.url)
+        self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={self.url}")
+
+    def test_mis_requerimientos_avisa_lo_que_espera_correccion(self):
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertContains(respuesta, 'id="aviso-devueltos"')
+        self.assertContains(respuesta, "necesita tu corrección")
+        self.assertContains(respuesta, self.url)
+
+    def test_sin_devueltos_no_hay_aviso(self):
+        self._reenviar(datos_correccion(self.requerimiento))
+        respuesta = self.client.get(reverse("requerimientos:mios"))
+        self.assertNotContains(respuesta, 'id="aviso-devueltos"')
+
+
+class NotificacionReenvioTests(TestCase):
+    """HU-24: casos del aviso a compras que no pasan por la vista."""
+
+    def test_sin_buzones_de_compras_no_se_envia_y_se_registra(self):
+        requerimiento = crear_requerimiento()
+        cambio = CambioEstado(
+            requerimiento=requerimiento,
+            estado_anterior=EstadoRequerimiento.DEVUELTO,
+            estado_nuevo=EstadoRequerimiento.RADICADO,
+        )
+        with (
+            override_settings(COMPRAS_EMAILS=[]),
+            self.assertLogs("requerimientos.notificaciones", level="WARNING"),
+        ):
+            self.assertFalse(notificaciones.notificar_reenvio(requerimiento, cambio, "http://x/"))
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class FichaIdsUnicosTests(VistaTestCase):
+    """HU-24: la ficha no repite ids aunque convivan dos formularios con observación."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def test_cada_campo_de_observacion_tiene_su_propio_id(self):
+        requerimiento = crear_requerimiento()
+        html = self.client.get(
+            reverse("requerimientos:ficha", args=[requerimiento.consecutivo])
+        ).content.decode()
+        ids = re.findall(r'\bid="([^"]+)"', html)
+        repetidos = {valor for valor in ids if ids.count(valor) > 1}
+        self.assertEqual(repetidos, set())

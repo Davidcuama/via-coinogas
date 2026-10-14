@@ -17,6 +17,17 @@ urlpatterns = [
         views.CambiarEstadoView.as_view(),
         name="cambiar_estado",
     ),
+    # HU-24: compras devuelve; el solicitante corrige y reenvía.
+    path(
+        "ficha/<str:consecutivo>/devolver/",
+        views.DevolverRequerimientoView.as_view(),
+        name="devolver",
+    ),
+    path(
+        "<str:consecutivo>/corregir/",
+        views.CorregirRequerimientoView.as_view(),
+        name="corregir",
+    ),
     # HU-11: los adjuntos se entregan por una vista que revisa permisos.
     path("adjunto/<int:pk>/", views.DescargarAdjuntoView.as_view(), name="adjunto"),
     # HU-18: guardado temporal del borrador, antes de la ruta con consecutivo.

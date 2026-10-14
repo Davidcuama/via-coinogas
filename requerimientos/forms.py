@@ -2,6 +2,7 @@ import re
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.db.models import Max
 from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
@@ -10,6 +11,7 @@ from .models import (
     JUSTIFICACION_MAX_LENGTH,
     MAX_PROVEEDORES_SUGERIDOS,
     MENSAJE_SUSTITUTOS_OBLIGATORIOS,
+    OBSERVACION_DEVOLUCION_MINIMA,
     OBSERVACION_MAX_LENGTH,
     Area,
     EstadoRequerimiento,
@@ -74,8 +76,14 @@ class RequerimientoForm(forms.ModelForm):
             ),
             # HU-04: lista cerrada, el solicitante no escribe la prioridad libremente.
             "prioridad": forms.Select(attrs={"class": "form-select"}),
-            # HU-05: selector de fecha nativo del navegador.
-            "fecha_requerida": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            # HU-05: selector de fecha nativo del navegador. Ese selector solo
+            # entiende AAAA-MM-DD; sin fijar el formato, Django pinta la fecha
+            # en el formato local (22/10/2026) y el navegador la deja en blanco.
+            # Al radicar no se nota porque el campo arranca vacío; al corregir
+            # un requerimiento devuelto (HU-24) sí.
+            "fecha_requerida": forms.DateInput(
+                format="%Y-%m-%d", attrs={"class": "form-control", "type": "date"}
+            ),
             # HU-14: la casilla muestra u oculta la descripción en el navegador.
             "hay_sustitutos": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "sustitutos": forms.Textarea(
@@ -253,19 +261,33 @@ class ItemForm(forms.ModelForm):
 
 
 class ItemBaseFormSet(forms.BaseInlineFormSet):
-    """Formset de ítems: numera las filas antes de guardarlas (HU-06).
+    """Formset de ítems: numera las filas nuevas antes de guardarlas (HU-06).
 
-    Se numeran en el orden en que quedaron en el formulario para que la
-    inserción no choque con la restricción de unicidad; la numeración final la
-    deja consecutiva `Requerimiento.renumerar_items()`.
+    Los ítems que ya existían conservan su número; los nuevos reciben números
+    por encima del mayor que ya tenga el requerimiento, para que la inserción
+    no choque con la restricción de unicidad. La numeración final la deja
+    consecutiva `Requerimiento.renumerar_items()`.
+
+    Al radicar no hay ítems previos y los nuevos quedan 1, 2, 3… Al corregir un
+    requerimiento devuelto (HU-24) sí los hay: si se numeraran desde 1, editar
+    solo el tercero lo pondría a chocar con el primero.
     """
 
     def save(self, commit=True):
-        vivos = [
-            form for form in self.forms if not self._should_delete_form(form) and form.has_changed()
+        nuevos = [
+            form
+            for form in self.forms
+            if not self._should_delete_form(form) and form.has_changed() and not form.instance.pk
         ]
-        for posicion, form in enumerate(vivos, start=1):
-            form.instance.numero = posicion
+        if nuevos:
+            mayor = (
+                Item.objects.filter(requerimiento=self.instance).aggregate(mayor=Max("numero"))[
+                    "mayor"
+                ]
+                or 0
+            )
+            for posicion, form in enumerate(nuevos, start=1):
+                form.instance.numero = mayor + posicion
         return super().save(commit=commit)
 
 
@@ -432,8 +454,22 @@ class ProveedoresSugeridosForm(forms.Form):
                 resultado.append(valores)
         return resultado
 
+    @staticmethod
+    def iniciales_de(requerimiento):
+        """Valores para precargar el formulario con los proveedores guardados (HU-24)."""
+        return {
+            _campo_proveedor(proveedor.orden, campo): getattr(proveedor, campo)
+            for proveedor in requerimiento.proveedores_sugeridos.all()
+            for campo in CAMPOS_PROVEEDOR
+        }
+
     def guardar(self, requerimiento):
-        """Crea los proveedores sugeridos del requerimiento recién radicado."""
+        """Guarda los proveedores sugeridos del requerimiento.
+
+        Reemplaza los que hubiera: al radicar no hay ninguno, y al corregir un
+        requerimiento devuelto (HU-24) lo que vale es lo que quedó en pantalla.
+        """
+        requerimiento.proveedores_sugeridos.all().delete()
         ProveedorSugerido.objects.bulk_create(
             ProveedorSugerido(requerimiento=requerimiento, orden=orden, **valores)
             for orden, valores in enumerate(self.proveedores(), start=1)
@@ -601,13 +637,21 @@ class AdjuntosForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, existentes=0, **kwargs):
+    def __init__(self, *args, requerimiento=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.existentes = existentes
+        self.requerimiento = requerimiento
+        # HU-24: al corregir se puede quitar lo que ya estaba adjunto, por
+        # ejemplo una foto que no muestra lo que compras necesitaba ver.
+        if requerimiento is not None:
+            self.fields["quitar"] = forms.ModelMultipleChoiceField(
+                label="Quitar adjuntos",
+                queryset=requerimiento.adjuntos.all(),
+                required=False,
+                widget=forms.CheckboxSelectMultiple(attrs={"class": "form-check-input"}),
+            )
 
     def clean_archivos(self):
         archivos = self.cleaned_data.get("archivos") or []
-        reglas_adjuntos.validar_cantidad(len(archivos), self.existentes)
 
         # Se revisan todos antes de responder: quien sube cinco archivos debe
         # enterarse de una vez de cuáles fallaron, no de a uno por intento.
@@ -620,6 +664,24 @@ class AdjuntosForm(forms.Form):
         if errores:
             raise ValidationError(errores)
         return validos
+
+    def clean(self):
+        datos = super().clean()
+        if "archivos" not in datos:
+            return datos
+        # El máximo cuenta lo que ya estaba adjunto, menos lo que se va a quitar.
+        existentes = 0
+        if self.requerimiento is not None:
+            existentes = self.requerimiento.adjuntos.count() - len(datos.get("quitar") or [])
+        try:
+            reglas_adjuntos.validar_cantidad(len(datos["archivos"]), existentes)
+        except ValidationError as error:
+            self.add_error("archivos", error)
+        return datos
+
+    def adjuntos_a_quitar(self):
+        """Adjuntos existentes que el solicitante marcó para quitar (HU-24)."""
+        return self.cleaned_data.get("quitar") or []
 
     def adjuntos_validos(self):
         """Pares ``(archivo, tipo)`` listos para guardar."""
@@ -661,7 +723,71 @@ class CambioEstadoForm(forms.Form):
     def __init__(self, *args, requerimiento, **kwargs):
         super().__init__(*args, **kwargs)
         self.requerimiento = requerimiento
+        # Devolver va por su propio formulario, que exige decir qué falta
+        # (HU-24). Y un requerimiento devuelto lo saca el solicitante cuando
+        # corrige, no compras: aquí no se ofrece nada mientras tanto.
+        if requerimiento.estado == EstadoRequerimiento.DEVUELTO:
+            opciones = []
+        else:
+            opciones = [
+                estado
+                for estado in requerimiento.estados_siguientes()
+                if estado != EstadoRequerimiento.DEVUELTO
+            ]
         self.fields["estado"].choices = [
-            (estado, EstadoRequerimiento(estado).label)
-            for estado in requerimiento.estados_siguientes()
+            (estado, EstadoRequerimiento(estado).label) for estado in opciones
         ]
+
+
+class DevolucionForm(forms.Form):
+    """Devolución de un requerimiento al solicitante (HU-24).
+
+    La observación es obligatoria y no puede ser un monosílabo: es lo que el
+    solicitante va a leer para saber qué corregir, sin tener que llamar.
+
+    Lleva prefijo porque convive en la ficha con el formulario de cambio de
+    estado, que también tiene un campo `observacion`: sin él, los dos campos
+    tendrían el mismo id y la etiqueta de uno apuntaría al otro.
+    """
+
+    prefix = "devolucion"
+
+    # CharField recorta los espacios antes de medir: «   ok   » no pasa.
+    observacion = forms.CharField(
+        label="¿Qué falta o qué hay que corregir?",
+        min_length=OBSERVACION_DEVOLUCION_MINIMA,
+        max_length=OBSERVACION_MAX_LENGTH,
+        error_messages={
+            "required": "Explica qué falta: el solicitante lo va a leer para corregirlo.",
+            "min_length": (
+                "Explica un poco más qué falta o qué hay que corregir "
+                f"(mínimo {OBSERVACION_DEVOLUCION_MINIMA} caracteres)."
+            ),
+        },
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "maxlength": OBSERVACION_MAX_LENGTH,
+                "placeholder": "Ej. Falta la referencia del manómetro y una foto de la placa.",
+            }
+        ),
+    )
+
+
+class ReenvioForm(forms.Form):
+    """Respuesta opcional del solicitante al reenviar lo corregido (HU-24)."""
+
+    respuesta = forms.CharField(
+        label="Mensaje para el área de compras (opcional)",
+        required=False,
+        max_length=OBSERVACION_MAX_LENGTH,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 2,
+                "maxlength": OBSERVACION_MAX_LENGTH,
+                "placeholder": "Qué corregiste, por si ayuda a revisarlo más rápido.",
+            }
+        ),
+    )

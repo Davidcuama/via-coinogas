@@ -45,6 +45,12 @@
             {% endfor %}
           </div>
         </form>
+      {% elif requerimiento.estado == "devuelto" %}
+        {# HU-24: mientras está devuelto, la pelota está del lado del solicitante. #}
+        <p class="text-muted mb-0" id="esperando-correccion">
+          Devuelto al solicitante. Vuelve a la bandeja como «Radicado» cuando él
+          lo corrija y lo reenvíe.
+        </p>
       {% else %}
         <p class="text-muted mb-0" id="sin-transiciones">
           {% if requerimiento.estado == "cerrado" %}
@@ -53,6 +59,30 @@
             Desde este estado no hay cambios que hacer por ahora.
           {% endif %}
         </p>
+      {% endif %}
+
+      {% if puede_devolverse %}
+        {# HU-24: devolver exige decir qué falta; por eso va aparte y plegado. #}
+        <details class="devolver mt-3" id="bloque-devolver"{% if devolucion.errors %} open{% endif %}>
+          <summary>Devolver al solicitante</summary>
+          <form method="post" action="{% url 'requerimientos:devolver' requerimiento.consecutivo %}"
+                id="form-devolver" class="mt-2">
+            {% csrf_token %}
+            <label for="{{ devolucion.observacion.id_for_label }}" class="form-label">
+              {{ devolucion.observacion.label }}
+            </label>
+            {{ devolucion.observacion }}
+            {% for error in devolucion.observacion.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+            <div class="form-text">
+              El solicitante recibe esta observación por correo, con el enlace para corregir.
+            </div>
+            <button type="submit" class="btn btn-outline-danger btn-sm mt-2" id="devolver">
+              Devolver al solicitante
+            </button>
+          </form>
+        </details>
       {% endif %}
 
       <h3 class="bitacora-titulo">Historia</h3>

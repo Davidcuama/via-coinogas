@@ -154,18 +154,33 @@ ESTADO_MAX_LENGTH = 20
 # HU-23: a qué estado se puede pasar desde cada uno. El flujo normal del área
 # de compras es revisar, cotizar y cerrar; se permite volver de cotización a
 # revisión porque a veces la cotización destapa algo que hay que revisar de
-# nuevo. Cerrado es definitivo. Las transiciones hacia y desde Devuelto llegan
-# con la devolución (HU-24), que exige además una observación.
+# nuevo. Cerrado es definitivo.
+#
+# HU-24: mientras no esté cerrado, compras puede devolverlo al solicitante si le
+# falta información; incluso en cotización, que es cuando suele aparecer lo que
+# no estaba claro. De Devuelto solo se sale cuando el solicitante corrige y
+# reenvía, y vuelve a Radicado para que compras lo retome desde el principio.
 TRANSICIONES = {
-    EstadoRequerimiento.RADICADO: (EstadoRequerimiento.EN_REVISION,),
-    EstadoRequerimiento.EN_REVISION: (EstadoRequerimiento.EN_COTIZACION,),
+    EstadoRequerimiento.RADICADO: (
+        EstadoRequerimiento.EN_REVISION,
+        EstadoRequerimiento.DEVUELTO,
+    ),
+    EstadoRequerimiento.EN_REVISION: (
+        EstadoRequerimiento.EN_COTIZACION,
+        EstadoRequerimiento.DEVUELTO,
+    ),
     EstadoRequerimiento.EN_COTIZACION: (
         EstadoRequerimiento.EN_REVISION,
         EstadoRequerimiento.CERRADO,
+        EstadoRequerimiento.DEVUELTO,
     ),
-    EstadoRequerimiento.DEVUELTO: (),
+    EstadoRequerimiento.DEVUELTO: (EstadoRequerimiento.RADICADO,),
     EstadoRequerimiento.CERRADO: (),
 }
+
+# HU-24: una devolución sin explicación deja al solicitante adivinando qué
+# corregir, que es justo lo que la historia quiere evitar.
+OBSERVACION_DEVOLUCION_MINIMA = 10
 
 OBSERVACION_MAX_LENGTH = 1000
 
@@ -318,6 +333,13 @@ class Requerimiento(models.Model):
                     f"«{destino}».",
                     code="transicion_no_permitida",
                 )
+            texto = (observacion or "").strip()
+            if nuevo == EstadoRequerimiento.DEVUELTO and len(texto) < OBSERVACION_DEVOLUCION_MINIMA:
+                raise TransicionNoPermitidaError(
+                    "Para devolver un requerimiento explica qué falta o qué hay que "
+                    "corregir: el solicitante lo va a leer para hacerlo.",
+                    code="observacion_obligatoria",
+                )
             anterior = actual.estado
             Requerimiento.objects.filter(pk=self.pk).update(estado=nuevo)
             self.estado = nuevo
@@ -325,9 +347,19 @@ class Requerimiento(models.Model):
                 requerimiento=self,
                 estado_anterior=anterior,
                 estado_nuevo=nuevo,
-                observacion=(observacion or "").strip(),
+                observacion=texto,
                 usuario=usuario,
             )
+
+    @property
+    def ultima_devolucion(self):
+        """El último cambio a Devuelto, con la observación del analista (HU-24)."""
+        return (
+            self.cambios_estado.filter(estado_nuevo=EstadoRequerimiento.DEVUELTO)
+            .select_related("usuario")
+            .order_by("-fecha", "-pk")
+            .first()
+        )
 
     def renumerar_items(self):
         """Deja la numeración de los ítems consecutiva desde 1 (HU-06).

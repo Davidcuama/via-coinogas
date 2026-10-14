@@ -1071,3 +1071,36 @@ h1, h2, h3, h4 {
   color: var(--tinta);
 }
 
+/* ============================================================
+   Devolución con observaciones (HU-24)
+   ============================================================ */
+
+.devolucion-aviso,
+.devueltos-aviso {
+  padding: 14px 18px;
+  border-radius: var(--r-g);
+  border: 1px solid #e9bdb7;
+  border-left: 4px solid var(--alerta);
+  background: #fdf2f0;
+}
+
+.devolucion-titulo {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--alerta);
+  margin-bottom: 6px;
+}
+
+.devueltos-aviso a {
+  color: var(--alerta);
+  font-weight: 600;
+}
+
+.devolver summary {
+  cursor: pointer;
+  color: var(--alerta);
+  font-weight: 600;
+  font-size: 13px;
+}
+

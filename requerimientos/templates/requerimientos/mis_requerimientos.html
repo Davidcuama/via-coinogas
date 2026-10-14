@@ -33,6 +33,25 @@
     </div>
   </form>
 
+  {# HU-24: lo único de la lista que espera algo del solicitante va primero. #}
+  {% if devueltos %}
+    <div class="devueltos-aviso mb-4" id="aviso-devueltos" role="alert">
+      <div class="devolucion-titulo">
+        {% with total=devueltos|length %}
+          {{ total }} requerimiento{{ total|pluralize }} necesita{{ total|pluralize:"n" }} tu corrección
+        {% endwith %}
+      </div>
+      <ul class="mb-0">
+        {% for requerimiento in devueltos %}
+          <li>
+            <a href="{% url 'requerimientos:corregir' requerimiento.consecutivo %}">{{ requerimiento.consecutivo }}</a>
+            — compras te pidió una corrección. <a href="{% url 'requerimientos:corregir' requerimiento.consecutivo %}">Corregir y reenviar →</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
   <div class="card">
     <div class="card-header">
       <h2>Radicados por ti</h2>
@@ -47,9 +66,9 @@
     <div class="card-body p-0">
       {# HU-23: la tabla compartida trae el estado de cada requerimiento. #}
       {% if busqueda %}
-        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Ningún requerimiento tuyo coincide con esa búsqueda." %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False enlazar_correccion=True vacio="Ningún requerimiento tuyo coincide con esa búsqueda." %}
       {% else %}
-        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False vacio="Todavía no has radicado ningún requerimiento." %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=False enlazar_correccion=True vacio="Todavía no has radicado ningún requerimiento." %}
       {% endif %}
     </div>
   </div>

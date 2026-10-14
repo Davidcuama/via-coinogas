@@ -3,15 +3,38 @@
 {% block content %}
 <div class="container my-4" style="max-width: 1140px;">
 
-  <div class="banda mb-4">
-    <div class="eyebrow">Radicación de compra</div>
-    <h1>Nuevo requerimiento</h1>
-    <p class="sub">Todos los campos son obligatorios.</p>
-  </div>
+  {% if modo_correccion %}
+    {# HU-24: el mismo formulario, para corregir un requerimiento devuelto. #}
+    <div class="banda mb-4">
+      <div class="eyebrow">Corrección de requerimiento devuelto</div>
+      <h1 class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="placa">{{ requerimiento.consecutivo }}</span>
+        {% include "requerimientos/_estado.html" %}
+      </h1>
+      <p class="sub">Corrige lo que te pidieron y reenvíalo: conserva el mismo consecutivo.</p>
+    </div>
+
+    {% if devolucion %}
+      <div class="devolucion-aviso mb-4" id="observacion-devolucion" role="note">
+        <div class="devolucion-titulo">Lo que te pidió el área de compras</div>
+        <p class="mb-2">{{ devolucion.observacion|linebreaksbr }}</p>
+        <div class="mini">
+          {% if devolucion.usuario %}{{ devolucion.usuario.get_full_name|default:devolucion.usuario.get_username }} · {% endif %}
+          {{ devolucion.fecha|date:"d/m/Y H:i" }}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="banda mb-4">
+      <div class="eyebrow">Radicación de compra</div>
+      <h1>Nuevo requerimiento</h1>
+      <p class="sub">Todos los campos son obligatorios.</p>
+    </div>
+  {% endif %}
 
   {% if form.errors or proveedores.errors %}
     <div class="alert alert-danger" role="alert" id="resumen-errores">
-      <strong>No se pudo radicar el requerimiento.</strong>
+      <strong>{% if modo_correccion %}No se pudo reenviar el requerimiento.{% else %}No se pudo radicar el requerimiento.{% endif %}</strong>
       Revisa los campos marcados:
       <ul class="mb-0">
         {% for etiqueta in form.campos_con_error %}<li>{{ etiqueta }}</li>{% endfor %}
@@ -229,7 +252,24 @@
           </div>
         {% endif %}
 
-        <label for="{{ adjuntos.archivos.id_for_label }}" class="form-label">Adjuntar archivos</label>
+        {% if modo_correccion and adjuntos.quitar %}
+          {# HU-24: lo que ya estaba adjunto, con la opción de quitarlo. #}
+          <div class="mb-3" id="adjuntos-existentes">
+            <div class="form-label">Ya adjuntos</div>
+            {% for opcion in adjuntos.quitar %}
+              <div class="form-check">
+                {{ opcion.tag }}
+                <label class="form-check-label" for="{{ opcion.id_for_label }}">
+                  Quitar «{{ opcion.choice_label }}»
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <label for="{{ adjuntos.archivos.id_for_label }}" class="form-label">
+          {% if modo_correccion %}Agregar archivos{% else %}Adjuntar archivos{% endif %}
+        </label>
         {{ adjuntos.archivos }}
 
         {# HU-12: en el celular, la foto se toma directamente con la cámara. #}
@@ -257,21 +297,41 @@
         {# Vista previa de lo seleccionado, antes de enviar. La arma el script de abajo. #}
         <ul class="lista-seleccionados" id="lista-seleccionados" hidden></ul>
 
-        <p class="form-text mb-0 mt-2">
-          Los adjuntos no se guardan en el borrador: selecciónalos al momento de radicar.
-        </p>
+        {% if not modo_correccion %}
+          <p class="form-text mb-0 mt-2">
+            Los adjuntos no se guardan en el borrador: selecciónalos al momento de radicar.
+          </p>
+        {% endif %}
       </div>
     </div>
+
+    {% if modo_correccion %}
+      {# HU-24: un mensaje opcional para compras, que queda en la bitácora. #}
+      <div class="card mb-4" id="tarjeta-reenvio">
+        <div class="card-header"><h2>Reenviar a compras</h2></div>
+        <div class="card-body">
+          <label for="{{ reenvio.respuesta.id_for_label }}" class="form-label">{{ reenvio.respuesta.label }}</label>
+          {{ reenvio.respuesta }}
+          {% for error in reenvio.respuesta.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
     <div class="d-flex gap-2">
       {# HU-34: este botón no envía directo; abre el aviso de confirmación. El #}
       {# envío real lo hace el botón del modal, para evitar radicaciones por error. #}
-      <button type="submit" class="btn btn-primary" id="radicar">Radicar requerimiento</button>
-      {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
-      <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
-              formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
-        Guardar borrador
+      <button type="submit" class="btn btn-primary" id="radicar">
+        {% if modo_correccion %}Reenviar a compras{% else %}Radicar requerimiento{% endif %}
       </button>
+      {% if modo_correccion %}
+        <a href="{% url 'requerimientos:mios' %}" class="btn btn-outline-secondary">Cancelar</a>
+      {% else %}
+        {# HU-18: `formnovalidate` deja guardar el borrador aunque falten campos. #}
+        <button type="submit" class="btn btn-outline-secondary" id="guardar-borrador"
+                formaction="{% url 'requerimientos:guardar_borrador' %}" formnovalidate>
+          Guardar borrador
+        </button>
+      {% endif %}
     </div>
   </form>
 
@@ -282,13 +342,20 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title h5" id="titulo-confirmar-radicacion">¿Radicar este requerimiento?</h2>
+          <h2 class="modal-title h5" id="titulo-confirmar-radicacion">
+            {% if modo_correccion %}¿Reenviar este requerimiento?{% else %}¿Radicar este requerimiento?{% endif %}
+          </h2>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
         <div class="modal-body">
           <p class="mb-3">
-            Una vez radicado se le asigna un consecutivo y se avisa al área de
-            compras. Revisa el resumen antes de confirmar:
+            {% if modo_correccion %}
+              Vuelve a la bandeja de compras con el mismo consecutivo y se le avisa
+              al área de compras. Revisa el resumen antes de confirmar:
+            {% else %}
+              Una vez radicado se le asigna un consecutivo y se avisa al área de
+              compras. Revisa el resumen antes de confirmar:
+            {% endif %}
           </p>
           <dl class="row mb-0">
             <dt class="col-5">Solicitante</dt>
@@ -308,7 +375,7 @@
             Revisar de nuevo
           </button>
           <button type="button" class="btn btn-primary" id="confirmar-radicacion">
-            Confirmar y radicar
+            {% if modo_correccion %}Confirmar y reenviar{% else %}Confirmar y radicar{% endif %}
           </button>
         </div>
       </div>

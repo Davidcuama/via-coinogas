@@ -25,6 +25,10 @@
             {% if enlazar_ficha %}
               <a href="{% url 'requerimientos:ficha' requerimiento.consecutivo %}"
                  class="placa clara">{{ requerimiento.consecutivo }}</a>
+            {% elif enlazar_correccion and requerimiento.estado == "devuelto" %}
+              {# HU-24: lo devuelto lleva directo a corregirlo. #}
+              <a href="{% url 'requerimientos:corregir' requerimiento.consecutivo %}"
+                 class="placa clara">{{ requerimiento.consecutivo }}</a>
             {% else %}
               <a href="{% url 'requerimientos:confirmacion' requerimiento.consecutivo %}"
                  class="placa clara">{{ requerimiento.consecutivo }}</a>

@@ -5,24 +5,40 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
-from django.views.generic import CreateView, DetailView, ListView, TemplateView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from . import adjuntos as reglas_adjuntos
 from . import borradores, perfiles
 from .forms import (
     AdjuntosForm,
     CambioEstadoForm,
+    DevolucionForm,
     FiltroBandejaForm,
     ItemFormSet,
     ProveedoresSugeridosForm,
+    ReenvioForm,
     RequerimientoForm,
     item_formset_desde_borrador,
 )
-from .models import Adjunto, Requerimiento, TransicionNoPermitidaError
-from .notificaciones import notificar_confirmacion_solicitante, notificar_radicacion
+from .models import Adjunto, EstadoRequerimiento, Requerimiento, TransicionNoPermitidaError
+from .notificaciones import (
+    notificar_confirmacion_solicitante,
+    notificar_devolucion,
+    notificar_radicacion,
+    notificar_reenvio,
+)
+
+
+def _limite_adjuntos():
+    """Límites de HU-11 para el aviso inmediato del navegador (viajan como JSON)."""
+    return {
+        "maximo": reglas_adjuntos.MAX_ADJUNTOS,
+        "tamano": reglas_adjuntos.TAMANO_MAXIMO,
+        "extensiones": list(reglas_adjuntos.EXTENSIONES),
+    }
 
 
 class PortadaView(TemplateView):
@@ -158,6 +174,11 @@ class MisRequerimientosView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         contexto = super().get_context_data(**kwargs)
+        # HU-24: lo devuelto se muestra arriba, aparte de la búsqueda, porque
+        # es lo único de la lista que espera algo del solicitante.
+        contexto["devueltos"] = Requerimiento.objects.filter(
+            creado_por=self.request.user, estado=EstadoRequerimiento.DEVUELTO
+        ).order_by("-pk")
         contexto["busqueda"] = self.busqueda()
         # Conserva la búsqueda al cambiar de página: sin esto, pasar a la
         # página 2 devolvería el listado completo sin filtrar.
@@ -210,11 +231,7 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
             contexto["adjuntos"] = AdjuntosForm()
         # Los mismos límites que aplica el servidor, para que el navegador avise
         # antes de enviar. Viajan como JSON (json_script), no pegados en el script.
-        contexto["limite_adjuntos"] = {
-            "maximo": reglas_adjuntos.MAX_ADJUNTOS,
-            "tamano": reglas_adjuntos.TAMANO_MAXIMO,
-            "extensiones": list(reglas_adjuntos.EXTENSIONES),
-        }
+        contexto["limite_adjuntos"] = _limite_adjuntos()
         # Si el formulario vuelve con errores, el navegador ya vació el selector
         # de archivos (no puede rellenarlo, por seguridad). Se avisa para que el
         # solicitante no crea que sus adjuntos siguen ahí.
@@ -342,6 +359,13 @@ class FichaRequerimientoView(PerfilRequeridoMixin, DetailView):
         # HU-23: el cambio de estado se hace desde la propia ficha, que es
         # donde el analista tiene todo para decidir.
         contexto["cambio_estado"] = CambioEstadoForm(requerimiento=self.object)
+        # HU-24: devolver tiene su propio formulario, que exige decir qué falta.
+        # Si llega uno con errores (desde DevolverRequerimientoView), se muestra
+        # ese, para no perder lo que el analista alcanzó a escribir.
+        contexto.setdefault("devolucion", DevolucionForm())
+        contexto["puede_devolverse"] = (
+            EstadoRequerimiento.DEVUELTO in self.object.estados_siguientes()
+        )
         return contexto
 
 
@@ -385,6 +409,156 @@ class CambiarEstadoView(PerfilRequeridoMixin, View):
             f"{requerimiento.consecutivo} pasó a «{requerimiento.get_estado_display()}».",
         )
         return ficha
+
+
+class DevolverRequerimientoView(PerfilRequeridoMixin, View):
+    """Devuelve un requerimiento al solicitante con una observación (HU-24).
+
+    El solicitante recibe un correo con lo que tiene que corregir y el enlace
+    directo para hacerlo; la observación queda además en la bitácora.
+    """
+
+    perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
+
+    def post(self, request, consecutivo):
+        requerimiento = get_object_or_404(Requerimiento, consecutivo=consecutivo)
+        formulario = DevolucionForm(request.POST)
+        if not formulario.is_valid():
+            return self._ficha_con_errores(request, requerimiento, formulario)
+
+        try:
+            cambio = requerimiento.cambiar_estado(
+                EstadoRequerimiento.DEVUELTO,
+                request.user,
+                formulario.cleaned_data["observacion"],
+            )
+        except TransicionNoPermitidaError as error:
+            messages.error(request, error.messages[0])
+            return redirect("requerimientos:ficha", consecutivo=consecutivo)
+
+        # El enlace se arma aquí, con el dominio por el que entró el analista,
+        # para que el correo lleve una dirección que funcione.
+        enlace = request.build_absolute_uri(
+            reverse("requerimientos:corregir", args=[requerimiento.consecutivo])
+        )
+        transaction.on_commit(lambda: notificar_devolucion(requerimiento, cambio, enlace))
+        messages.success(
+            request,
+            f"{requerimiento.consecutivo} se devolvió al solicitante. "
+            "Le llega un correo con tu observación y el enlace para corregirlo.",
+        )
+        return redirect("requerimientos:ficha", consecutivo=consecutivo)
+
+    @staticmethod
+    def _ficha_con_errores(request, requerimiento, formulario):
+        """Vuelve a pintar la ficha con el error y el texto que ya se escribió."""
+        ficha = FichaRequerimientoView()
+        ficha.setup(request, consecutivo=requerimiento.consecutivo)
+        ficha.object = ficha.get_object()
+        contexto = ficha.get_context_data(object=ficha.object, devolucion=formulario)
+        return render(request, ficha.template_name, contexto)
+
+
+class CorregirRequerimientoView(LoginRequiredMixin, UpdateView):
+    """El solicitante corrige un requerimiento devuelto y lo reenvía (HU-24).
+
+    Reutiliza el formulario de radicación, con todas sus validaciones (HU-15),
+    en modo corrección: arriba va lo que pidió el analista, y al reenviar el
+    requerimiento vuelve a Radicado con el mismo consecutivo.
+    """
+
+    model = Requerimiento
+    form_class = RequerimientoForm
+    template_name = "requerimientos/requerimiento_form.html"
+    slug_field = "consecutivo"
+    slug_url_kwarg = "consecutivo"
+
+    def get_queryset(self):
+        # Solo lo propio y solo mientras está devuelto. Lo que no cumple da 404:
+        # ni un requerimiento ajeno ni uno que ya se reenvió se editan aquí.
+        return Requerimiento.objects.filter(
+            creado_por=self.request.user, estado=EstadoRequerimiento.DEVUELTO
+        ).prefetch_related("adjuntos", "proveedores_sugeridos")
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        contexto["modo_correccion"] = True
+        contexto["devolucion"] = self.object.ultima_devolucion
+        contexto["limite_adjuntos"] = _limite_adjuntos()
+        contexto["archivos_descartados"] = self.request.method == "POST" and bool(
+            self.request.FILES.getlist("archivos")
+        )
+        if "items" not in contexto:
+            contexto["items"] = ItemFormSet(instance=self.object)
+        if "proveedores" not in contexto:
+            contexto["proveedores"] = ProveedoresSugeridosForm(
+                initial=ProveedoresSugeridosForm.iniciales_de(self.object)
+            )
+        if "adjuntos" not in contexto:
+            contexto["adjuntos"] = AdjuntosForm(requerimiento=self.object)
+        if "reenvio" not in contexto:
+            contexto["reenvio"] = ReenvioForm()
+        return contexto
+
+    def form_valid(self, form):
+        items = ItemFormSet(self.request.POST, instance=self.object)
+        proveedores = ProveedoresSugeridosForm(self.request.POST)
+        adjuntos = AdjuntosForm(self.request.POST, self.request.FILES, requerimiento=self.object)
+        reenvio = ReenvioForm(self.request.POST)
+        # Todos se validan antes de decidir, para mostrar todos los errores juntos.
+        validos = [formulario.is_valid() for formulario in (items, proveedores, adjuntos, reenvio)]
+        if not all(validos):
+            return self.form_invalid(form, items, proveedores, adjuntos, reenvio)
+
+        enlace_ficha = self.request.build_absolute_uri(
+            reverse("requerimientos:ficha", args=[self.object.consecutivo])
+        )
+        # Lo corregido y el cambio de estado entran juntos: si algo falla, el
+        # requerimiento sigue devuelto y tal como estaba.
+        with transaction.atomic():
+            self.object = form.save()
+            items.save()
+            self.object.renumerar_items()
+            proveedores.guardar(self.object)
+            for adjunto in adjuntos.adjuntos_a_quitar():
+                adjunto.delete()
+            reglas_adjuntos.guardar(self.object, adjuntos.adjuntos_validos(), self.request.user)
+            cambio = self.object.cambiar_estado(
+                EstadoRequerimiento.RADICADO,
+                self.request.user,
+                reenvio.cleaned_data["respuesta"],
+            )
+            requerimiento = self.object
+            transaction.on_commit(lambda: notificar_reenvio(requerimiento, cambio, enlace_ficha))
+
+        messages.success(
+            self.request,
+            f"{requerimiento.consecutivo} se reenvió al área de compras con tus correcciones.",
+        )
+        return redirect("requerimientos:mios")
+
+    def form_invalid(self, form, items=None, proveedores=None, adjuntos=None, reenvio=None):
+        if items is None:
+            items = ItemFormSet(self.request.POST, instance=self.object)
+        if proveedores is None:
+            proveedores = ProveedoresSugeridosForm(self.request.POST)
+            proveedores.is_valid()
+        if adjuntos is None:
+            adjuntos = AdjuntosForm(
+                self.request.POST, self.request.FILES, requerimiento=self.object
+            )
+            adjuntos.is_valid()
+        if reenvio is None:
+            reenvio = ReenvioForm(self.request.POST)
+        return self.render_to_response(
+            self.get_context_data(
+                form=form,
+                items=items,
+                proveedores=proveedores,
+                adjuntos=adjuntos,
+                reenvio=reenvio,
+            )
+        )
 
 
 class DescargarAdjuntoView(LoginRequiredMixin, View):
