@@ -6,6 +6,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 JUSTIFICACION_MAX_LENGTH = 1000
@@ -584,3 +586,22 @@ class Adjunto(models.Model):
 
     def __str__(self):
         return self.nombre_original
+
+    @property
+    def extension(self):
+        """Extensión en mayúsculas (PDF, XLSX), para rotular los documentos."""
+        return Path(self.nombre_original).suffix.lstrip(".").upper()
+
+
+@receiver(post_delete, sender=Adjunto)
+def borrar_archivo_del_adjunto(sender, instance, **kwargs):
+    """Borra del disco el archivo de un adjunto eliminado (HU-11).
+
+    Django borra la fila pero no el archivo, y con el tiempo el disco se llena
+    de adjuntos que nada apunta. Se espera a que la transacción se confirme: si
+    se deshiciera, la fila volvería y su archivo tiene que seguir ahí. También
+    cubre el borrado en cascada de un requerimiento entero.
+    """
+    archivo = instance.archivo
+    if archivo:
+        transaction.on_commit(lambda: archivo.storage.delete(archivo.name))

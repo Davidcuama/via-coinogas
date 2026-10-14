@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -21,10 +22,18 @@ from django.db import connection, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.datastructures import MultiValueDict
 
+from . import adjuntos as reglas_adjuntos
 from . import notificaciones, perfiles
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
-from .forms import CAMPOS_OBLIGATORIOS, ItemForm, RequerimientoForm
+from .forms import (
+    CAMPOS_OBLIGATORIOS,
+    AdjuntosForm,
+    ItemForm,
+    RequerimientoForm,
+    VariosArchivosField,
+)
 from .models import (
     Adjunto,
     Area,
@@ -2948,3 +2957,326 @@ class EsquemaAdjuntoTests(TestCase):
     def test_un_adjunto_se_muestra_con_su_nombre_original(self):
         adjunto = Adjunto(nombre_original="cotizacion-proveedor.pdf")
         self.assertEqual(str(adjunto), "cotizacion-proveedor.pdf")
+
+
+# --- HU-11: adjuntos -------------------------------------------------------
+
+# Contenidos mínimos con la firma real de cada formato: lo que el validador
+# revisa son los primeros bytes, no la extensión.
+CONTENIDO_JPG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+CONTENIDO_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+CONTENIDO_PDF = b"%PDF-1.7\n" + b"0" * 64
+CONTENIDO_DOCX = b"PK\x03\x04" + b"\x00" * 64
+CONTENIDO_DOC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64
+CONTENIDO_WEBP = b"RIFF" + b"\x24\x00\x00\x00" + b"WEBPVP8 " + b"\x00" * 64
+CONTENIDO_HEIC = b"\x00\x00\x00\x18" + b"ftypheic" + b"\x00" * 64
+
+
+def archivo(nombre, contenido=CONTENIDO_JPG, tipo="application/octet-stream"):
+    return SimpleUploadedFile(nombre, contenido, content_type=tipo)
+
+
+class MediaTemporalMixin:
+    """Guarda los adjuntos de la prueba en una carpeta temporal y la borra al final.
+
+    Sin esto las pruebas escribirían en la carpeta `media` real del proyecto.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.carpeta_media = tempfile.mkdtemp(prefix="via-media-")
+        ajuste = override_settings(MEDIA_ROOT=self.carpeta_media)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+        self.addCleanup(shutil.rmtree, self.carpeta_media, ignore_errors=True)
+
+
+class ValidacionAdjuntosTests(TestCase):
+    """HU-11: qué archivos se aceptan, sin pasar por las vistas."""
+
+    def test_acepta_cada_formato_con_su_firma_real(self):
+        casos = [
+            ("foto.jpg", CONTENIDO_JPG, Adjunto.Tipo.FOTO),
+            ("foto.JPEG", CONTENIDO_JPG, Adjunto.Tipo.FOTO),
+            ("captura.png", CONTENIDO_PNG, Adjunto.Tipo.FOTO),
+            ("imagen.webp", CONTENIDO_WEBP, Adjunto.Tipo.FOTO),
+            ("iphone.heic", CONTENIDO_HEIC, Adjunto.Tipo.FOTO),
+            ("ficha.pdf", CONTENIDO_PDF, Adjunto.Tipo.DOCUMENTO),
+            ("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO),
+            ("precios.xlsx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO),
+            ("formato-viejo.doc", CONTENIDO_DOC, Adjunto.Tipo.DOCUMENTO),
+            ("tabla-vieja.xls", CONTENIDO_DOC, Adjunto.Tipo.DOCUMENTO),
+        ]
+        for nombre, contenido, tipo in casos:
+            with self.subTest(archivo=nombre):
+                self.assertEqual(reglas_adjuntos.validar_archivo(archivo(nombre, contenido)), tipo)
+
+    def test_rechaza_un_tipo_no_admitido(self):
+        with self.assertRaisesMessage(ValidationError, "no es un tipo de archivo admitido"):
+            reglas_adjuntos.validar_archivo(archivo("instalador.exe", b"MZ" + b"\x00" * 64))
+
+    def test_rechaza_un_ejecutable_disfrazado_de_pdf(self):
+        # La extensión la escoge quien sube el archivo; la firma no se puede
+        # falsear sin dañar el ejecutable.
+        with self.assertRaisesMessage(ValidationError, "no es realmente un archivo PDF"):
+            reglas_adjuntos.validar_archivo(archivo("ficha.pdf", b"MZ\x90\x00" + b"\x00" * 64))
+
+    def test_rechaza_una_pagina_web_disfrazada_de_foto(self):
+        with self.assertRaisesMessage(ValidationError, "no es realmente un archivo JPG"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", b"<html><script>"))
+
+    def test_rechaza_un_archivo_vacio(self):
+        with self.assertRaisesMessage(ValidationError, "está vacío"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", b""))
+
+    @mock.patch.object(reglas_adjuntos, "TAMANO_MAXIMO", 32)
+    def test_rechaza_un_archivo_demasiado_grande(self):
+        with self.assertRaisesMessage(ValidationError, "el máximo por archivo es"):
+            reglas_adjuntos.validar_archivo(archivo("foto.jpg", CONTENIDO_JPG))
+
+    def test_rechaza_pasarse_del_maximo_de_adjuntos(self):
+        maximo = reglas_adjuntos.MAX_ADJUNTOS
+        reglas_adjuntos.validar_cantidad(maximo)  # justo en el límite pasa
+        with self.assertRaisesMessage(ValidationError, f"hasta {maximo} archivos"):
+            reglas_adjuntos.validar_cantidad(maximo + 1)
+
+    def test_el_maximo_cuenta_lo_que_ya_estaba_adjunto(self):
+        # Al corregir un requerimiento devuelto (HU-24) se suma a lo que había.
+        with self.assertRaisesMessage(ValidationError, "puedes sumar 2 más"):
+            reglas_adjuntos.validar_cantidad(3, existentes=reglas_adjuntos.MAX_ADJUNTOS - 2)
+
+    def test_el_formulario_reporta_todos_los_errores_de_una_vez(self):
+        formulario = AdjuntosForm(
+            data={},
+            files=MultiValueDict(
+                {
+                    "archivos": [
+                        archivo("bien.jpg"),
+                        archivo("malo.exe", b"MZ"),
+                        archivo("falso.pdf", b"no soy pdf"),
+                    ]
+                }
+            ),
+        )
+        self.assertFalse(formulario.is_valid())
+        errores = " ".join(formulario.errors["archivos"])
+        self.assertIn("malo.exe", errores)
+        self.assertIn("falso.pdf", errores)
+        self.assertNotIn("bien.jpg", errores)
+
+    def test_sin_archivos_el_formulario_es_valido(self):
+        formulario = AdjuntosForm(data={}, files=MultiValueDict())
+        self.assertTrue(formulario.is_valid())
+        self.assertEqual(formulario.adjuntos_validos(), [])
+
+
+class RadicarConAdjuntosTests(MediaTemporalMixin, VistaTestCase):
+    """HU-11: el solicitante adjunta fotos y documentos al radicar."""
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.url = reverse("requerimientos:crear")
+
+    def _datos(self, archivos=(), **overrides):
+        datos = {
+            "solicitante": "Ana Gómez",
+            "area": self.area.pk,
+            "centro_costo": self.centro_costo.pk,
+            "justificacion": "Reposición de instrumentación.",
+            "prioridad": self.prioridad.pk,
+            "fecha_requerida": (date.today() + timedelta(days=10)).isoformat(),
+            **datos_items(),
+            "archivos": list(archivos),
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_radicar_con_una_foto_y_una_ficha_tecnica(self):
+        respuesta = self.client.post(
+            self.url,
+            self._datos(
+                [
+                    archivo("manometro.jpg", CONTENIDO_JPG),
+                    archivo("Ficha técnica.pdf", CONTENIDO_PDF),
+                ]
+            ),
+        )
+
+        requerimiento = Requerimiento.objects.get()
+        self.assertRedirects(
+            respuesta, reverse("requerimientos:confirmacion", args=[requerimiento.consecutivo])
+        )
+        foto, ficha = requerimiento.adjuntos.all()
+        self.assertEqual((foto.nombre_original, foto.tipo), ("manometro.jpg", Adjunto.Tipo.FOTO))
+        self.assertEqual(
+            (ficha.nombre_original, ficha.tipo), ("Ficha técnica.pdf", Adjunto.Tipo.DOCUMENTO)
+        )
+        self.assertEqual(ficha.tamano, len(CONTENIDO_PDF))
+        self.assertEqual(ficha.subido_por, self.usuario)
+        # El archivo quedó en disco, bajo el consecutivo y con nombre aleatorio.
+        self.assertTrue(ficha.archivo.storage.exists(ficha.archivo.name))
+        self.assertIn(requerimiento.consecutivo, ficha.archivo.name)
+
+    def test_radicar_sin_adjuntos_sigue_siendo_posible(self):
+        # Hay compras que se entienden con la descripción: adjuntar es opcional.
+        self.client.post(self.url, self._datos())
+        self.assertEqual(Requerimiento.objects.get().adjuntos.count(), 0)
+
+    def test_un_archivo_invalido_no_deja_nada_radicado(self):
+        respuesta = self.client.post(
+            self.url,
+            self._datos([archivo("bien.jpg"), archivo("ficha.pdf", b"esto no es un pdf")]),
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertEqual(Adjunto.objects.count(), 0)
+        self.assertContains(respuesta, "no es realmente un archivo PDF")
+
+    def test_pasarse_del_maximo_no_radica(self):
+        demasiados = [archivo(f"foto-{n}.jpg") for n in range(reglas_adjuntos.MAX_ADJUNTOS + 1)]
+        respuesta = self.client.post(self.url, self._datos(demasiados))
+        self.assertEqual(Requerimiento.objects.count(), 0)
+        self.assertContains(respuesta, f"hasta {reglas_adjuntos.MAX_ADJUNTOS} archivos")
+
+    def test_si_el_encabezado_falla_avisa_que_hay_que_volver_a_elegir_los_archivos(self):
+        respuesta = self.client.post(
+            self.url, self._datos([archivo("manometro.jpg")], justificacion="")
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'id="aviso-archivos-descartados"')
+
+    def test_sin_archivos_no_aparece_el_aviso_de_descartados(self):
+        respuesta = self.client.post(self.url, self._datos(justificacion=""))
+        self.assertNotContains(respuesta, 'id="aviso-archivos-descartados"')
+
+    def test_el_formulario_viaja_como_multipart(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'enctype="multipart/form-data"')
+        self.assertContains(respuesta, 'id="limite-adjuntos"')
+
+    def test_la_confirmacion_muestra_lo_adjuntado(self):
+        respuesta = self.client.post(self.url, self._datos([archivo("manometro.jpg")]), follow=True)
+        self.assertContains(respuesta, "manometro.jpg")
+        adjunto = Adjunto.objects.get()
+        self.assertContains(respuesta, reverse("requerimientos:adjunto", args=[adjunto.pk]))
+
+
+class DescargaAdjuntoTests(MediaTemporalMixin, TestCase):
+    """HU-11: cada adjunto lo ve solo quien tiene derecho."""
+
+    def setUp(self):
+        super().setUp()
+        self.duena = crear_usuario("ana.gomez", "Ana", "Gómez", perfiles.SOLICITANTE)
+        self.requerimiento = crear_requerimiento(creado_por=self.duena)
+        self.foto = self._adjuntar("manometro.jpg", CONTENIDO_JPG, Adjunto.Tipo.FOTO)
+
+    def _adjuntar(self, nombre, contenido, tipo):
+        return reglas_adjuntos.guardar(
+            self.requerimiento, [(archivo(nombre, contenido), tipo)], self.duena
+        )[0]
+
+    def _url(self, adjunto):
+        return reverse("requerimientos:adjunto", args=[adjunto.pk])
+
+    def _como(self, cuenta):
+        cliente = Client()
+        cliente.force_login(cuenta)
+        return cliente
+
+    def test_quien_radico_ve_su_adjunto(self):
+        respuesta = self._como(self.duena).get(self._url(self.foto))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(b"".join(respuesta.streaming_content), CONTENIDO_JPG)
+
+    def test_el_analista_ve_cualquier_adjunto(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.assertEqual(self._como(analista).get(self._url(self.foto)).status_code, 200)
+
+    def test_otro_solicitante_no_lo_ve_ni_sabe_que_existe(self):
+        otro = crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE)
+        # 404 y no 403: un "prohibido" ya le confirmaría que existe.
+        self.assertEqual(self._como(otro).get(self._url(self.foto)).status_code, 404)
+
+    def test_sin_sesion_manda_al_ingreso(self):
+        url = self._url(self.foto)
+        respuesta = self.client.get(url)
+        self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={url}")
+
+    def test_un_adjunto_que_no_existe_responde_404(self):
+        self.assertEqual(
+            self._como(self.duena)
+            .get(reverse("requerimientos:adjunto", args=[999999]))
+            .status_code,
+            404,
+        )
+
+    def test_la_foto_se_abre_en_el_navegador_y_el_word_se_descarga(self):
+        word = self._adjuntar("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO)
+        cliente = self._como(self.duena)
+
+        foto = cliente.get(self._url(self.foto))
+        documento = cliente.get(self._url(word))
+
+        self.assertTrue(foto["Content-Disposition"].startswith("inline"))
+        self.assertTrue(documento["Content-Disposition"].startswith("attachment"))
+        # Se descarga con el nombre que le dio el usuario, no con el aleatorio.
+        self.assertIn("cotizacion.docx", documento["Content-Disposition"])
+
+    def test_si_el_archivo_desaparecio_del_disco_responde_404(self):
+        self.foto.archivo.storage.delete(self.foto.archivo.name)
+        self.assertEqual(self._como(self.duena).get(self._url(self.foto)).status_code, 404)
+
+    def test_borrar_el_adjunto_borra_el_archivo_del_disco(self):
+        nombre = self.foto.archivo.name
+        almacen = self.foto.archivo.storage
+        with self.captureOnCommitCallbacks(execute=True):
+            self.foto.delete()
+        self.assertFalse(almacen.exists(nombre))
+
+    def test_borrar_el_requerimiento_borra_sus_archivos(self):
+        nombre = self.foto.archivo.name
+        almacen = self.foto.archivo.storage
+        with self.captureOnCommitCallbacks(execute=True):
+            self.requerimiento.delete()
+        self.assertFalse(almacen.exists(nombre))
+
+    def test_la_ficha_enlaza_la_descarga_protegida_y_no_el_archivo_directo(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        respuesta = self._como(analista).get(
+            reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+        )
+        self.assertContains(respuesta, self._url(self.foto))
+        self.assertNotContains(respuesta, "/media/")
+        self.assertContains(respuesta, "manometro.jpg")
+
+    def test_la_ficha_avisa_cuando_no_hay_adjuntos(self):
+        analista = crear_usuario("daryi.silva", "Daryi", "Silva", perfiles.ANALISTA)
+        self.foto.delete()
+        respuesta = self._como(analista).get(
+            reverse("requerimientos:ficha", args=[self.requerimiento.consecutivo])
+        )
+        self.assertContains(respuesta, "El solicitante no adjuntó archivos.")
+
+    def test_un_documento_se_rotula_con_su_extension(self):
+        word = self._adjuntar("cotizacion.docx", CONTENIDO_DOCX, Adjunto.Tipo.DOCUMENTO)
+        self.assertEqual(word.extension, "DOCX")
+
+
+class ReglasAdjuntosBordesTests(TestCase):
+    """HU-11: casos límite de las reglas, sin pasar por las vistas."""
+
+    def test_un_anonimo_no_puede_ver_ningun_adjunto(self):
+        adjunto = Adjunto(requerimiento=crear_requerimiento())
+        self.assertFalse(reglas_adjuntos.puede_ver(AnonymousUser(), adjunto))
+
+    def test_el_campo_acepta_un_solo_archivo_suelto(self):
+        # Un navegador sin `multiple` manda un archivo, no una lista.
+        campo = VariosArchivosField(required=False)
+        foto = archivo("foto.jpg")
+        self.assertEqual(campo.clean(foto), [foto])
+
+    def test_el_campo_vacio_devuelve_una_lista_vacia(self):
+        self.assertEqual(VariosArchivosField(required=False).clean(None), [])

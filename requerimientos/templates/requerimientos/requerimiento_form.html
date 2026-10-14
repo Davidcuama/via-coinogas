@@ -42,7 +42,8 @@
 
   {# HU-15: `needs-validation` activa la retroalimentación inmediata de Bootstrap en el navegador. #}
   {# El servidor valida de todas formas: es la fuente de verdad. #}
-  <form method="post" class="needs-validation" novalidate>
+  {# HU-11: multipart para que el formulario pueda llevar archivos. #}
+  <form method="post" class="needs-validation" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
 
     <div class="card mb-4">
@@ -212,6 +213,38 @@
       </div>
     </div>
 
+    {# HU-11: fotografías y documentos de soporte. Son opcionales. #}
+    <div class="card mb-4" id="tarjeta-adjuntos">
+      <div class="card-header"><h2>Fotografías y documentos de soporte</h2></div>
+      <div class="card-body">
+        <p class="form-text mt-0 mb-3">
+          Una foto del artículo, la ficha técnica o una cotización de referencia
+          evitan que compras tenga que adivinar qué necesitas.
+        </p>
+
+        {% if archivos_descartados %}
+          <div class="alert alert-warning py-2" role="alert" id="aviso-archivos-descartados">
+            El formulario tenía errores y el navegador no conserva los archivos
+            seleccionados. Vuelve a elegirlos antes de radicar.
+          </div>
+        {% endif %}
+
+        <label for="{{ adjuntos.archivos.id_for_label }}" class="form-label">Adjuntar archivos</label>
+        {{ adjuntos.archivos }}
+        <div class="form-text">{{ adjuntos.ayuda }}</div>
+        {% for error in adjuntos.archivos.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+
+        {# Vista previa de lo seleccionado, antes de enviar. La arma el script de abajo. #}
+        <ul class="lista-seleccionados" id="lista-seleccionados" hidden></ul>
+
+        <p class="form-text mb-0 mt-2">
+          Los adjuntos no se guardan en el borrador: selecciónalos al momento de radicar.
+        </p>
+      </div>
+    </div>
+
     <div class="d-flex gap-2">
       {# HU-34: este botón no envía directo; abre el aviso de confirmación. El #}
       {# envío real lo hace el botón del modal, para evitar radicaciones por error. #}
@@ -248,6 +281,8 @@
             <dd class="col-7" id="resumen-fecha">—</dd>
             <dt class="col-5">Ítems</dt>
             <dd class="col-7" id="resumen-items">—</dd>
+            <dt class="col-5">Adjuntos</dt>
+            <dd class="col-7" id="resumen-adjuntos">—</dd>
           </dl>
         </div>
         <div class="modal-footer">
@@ -338,6 +373,11 @@
       document.getElementById("resumen-prioridad").textContent = texto("id_prioridad");
       document.getElementById("resumen-fecha").textContent = texto("id_fecha_requerida");
       document.getElementById("resumen-items").textContent = contarItems();
+      // HU-11: cuántos archivos van, para que no se radique sin el soporte.
+      var selector = document.getElementById("id_archivos");
+      var cuantos = selector && selector.files ? selector.files.length : 0;
+      document.getElementById("resumen-adjuntos").textContent =
+        cuantos ? cuantos + " archivo" + (cuantos === 1 ? "" : "s") : "Ninguno";
       modal.show();
     });
 
@@ -507,6 +547,67 @@
       setTimeout(calcularTotales, 0);
     });
     calcularTotales();
+  });
+</script>
+
+{{ limite_adjuntos|json_script:"limite-adjuntos" }}
+<script>
+  // HU-11: muestra lo que se va a adjuntar y avisa de inmediato lo que no va a
+  // pasar (tipo o tamaño), sin esperar a enviar. Es solo una ayuda: el servidor
+  // vuelve a revisarlo todo, incluido el contenido real de cada archivo.
+  document.addEventListener("DOMContentLoaded", function () {
+    var selector = document.getElementById("id_archivos");
+    var lista = document.getElementById("lista-seleccionados");
+    if (!selector || !lista) return;
+
+    var limites = JSON.parse(document.getElementById("limite-adjuntos").textContent);
+    var MAXIMO = limites.maximo;
+    var TAMANO_MAXIMO = limites.tamano;
+    var EXTENSIONES = limites.extensiones;
+
+    function peso(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function extension(nombre) {
+      var punto = nombre.lastIndexOf(".");
+      return punto === -1 ? "" : nombre.slice(punto).toLowerCase();
+    }
+
+    selector.addEventListener("change", function () {
+      lista.innerHTML = "";
+      var archivos = Array.prototype.slice.call(selector.files || []);
+      lista.hidden = archivos.length === 0;
+
+      archivos.forEach(function (archivo) {
+        var problema = "";
+        if (EXTENSIONES.indexOf(extension(archivo.name)) === -1) {
+          problema = "tipo no admitido";
+        } else if (archivo.size > TAMANO_MAXIMO) {
+          problema = "supera " + peso(TAMANO_MAXIMO);
+        }
+        var fila = document.createElement("li");
+        fila.className = problema ? "con-problema" : "";
+        var nombre = document.createElement("span");
+        nombre.className = "nombre";
+        nombre.textContent = archivo.name;
+        var detalle = document.createElement("span");
+        detalle.className = "detalle";
+        detalle.textContent = problema || peso(archivo.size);
+        fila.appendChild(nombre);
+        fila.appendChild(detalle);
+        lista.appendChild(fila);
+      });
+
+      if (archivos.length > MAXIMO) {
+        var aviso = document.createElement("li");
+        aviso.className = "con-problema";
+        aviso.textContent = "Seleccionaste " + archivos.length + " archivos; el máximo es " + MAXIMO + ".";
+        lista.appendChild(aviso);
+      }
+    });
   });
 </script>
 

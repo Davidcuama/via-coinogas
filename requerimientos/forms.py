@@ -1,8 +1,11 @@
 import re
 
 from django import forms
+from django.core.exceptions import ValidationError
+from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
+from . import adjuntos as reglas_adjuntos
 from .models import (
     JUSTIFICACION_MAX_LENGTH,
     MAX_PROVEEDORES_SUGERIDOS,
@@ -537,3 +540,86 @@ class FiltroBandejaForm(forms.Form):
             consulta = consulta.filter(fecha_solicitud__lte=criterios["hasta"])
         orden = criterios.get("orden", ORDEN_BANDEJA_DEFECTO)
         return consulta.order_by(*ORDEN_BANDEJA[orden][1])
+
+
+class SelectorVariosArchivos(forms.ClearableFileInput):
+    """Selector de archivos que admite elegir varios a la vez (HU-11)."""
+
+    allow_multiple_selected = True
+
+
+class VariosArchivosField(forms.FileField):
+    """Campo que recibe una lista de archivos en vez de uno solo.
+
+    Django no trae uno: este es el patrón de su documentación. Cada archivo pasa
+    por la limpieza normal de ``FileField``, y el resultado es siempre una lista,
+    vacía si no se eligió ninguno.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", SelectorVariosArchivos())
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        limpiar_uno = super().clean
+        if isinstance(data, (list, tuple)):
+            return [limpiar_uno(archivo, initial) for archivo in data if archivo]
+        return [limpiar_uno(data, initial)] if data else []
+
+
+class AdjuntosForm(forms.Form):
+    """Fotografías y documentos de soporte del requerimiento (HU-11).
+
+    Va aparte del formulario de radicación por dos razones: no son campos del
+    modelo, y el borrador (HU-18) no puede conservarlos —un archivo no cabe en la
+    sesión—, así que no deben mezclarse con lo que el borrador sí guarda.
+
+    Los adjuntos son opcionales: hay compras que se entienden con la
+    descripción. `existentes` permite reutilizarlo al corregir un requerimiento
+    devuelto (HU-24), donde el máximo cuenta también lo que ya estaba adjunto.
+    """
+
+    archivos = VariosArchivosField(
+        label="Fotografías y documentos de soporte",
+        required=False,
+        widget=SelectorVariosArchivos(
+            attrs={
+                "class": "form-control",
+                "accept": reglas_adjuntos.ACCEPT,
+                "id": "id_archivos",
+            }
+        ),
+    )
+
+    def __init__(self, *args, existentes=0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.existentes = existentes
+
+    def clean_archivos(self):
+        archivos = self.cleaned_data.get("archivos") or []
+        reglas_adjuntos.validar_cantidad(len(archivos), self.existentes)
+
+        # Se revisan todos antes de responder: quien sube cinco archivos debe
+        # enterarse de una vez de cuáles fallaron, no de a uno por intento.
+        validos, errores = [], []
+        for archivo in archivos:
+            try:
+                validos.append((archivo, reglas_adjuntos.validar_archivo(archivo)))
+            except ValidationError as error:
+                errores.extend(error.messages)
+        if errores:
+            raise ValidationError(errores)
+        return validos
+
+    def adjuntos_validos(self):
+        """Pares ``(archivo, tipo)`` listos para guardar."""
+        return self.cleaned_data.get("archivos", [])
+
+    @staticmethod
+    def ayuda():
+        """Texto de ayuda con los límites vigentes, para la plantilla."""
+        return (
+            f"Hasta {reglas_adjuntos.MAX_ADJUNTOS} archivos de máximo "
+            f"{filesizeformat(reglas_adjuntos.TAMANO_MAXIMO)} cada uno. "
+            "Fotos (JPG, PNG, WEBP, HEIC) y documentos (PDF, Word, Excel)."
+        )

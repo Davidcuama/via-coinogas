@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Adjunto,
     Area,
     CentroCosto,
     Item,
@@ -70,6 +71,23 @@ class ProveedorSugeridoInline(admin.TabularInline):
     fields = ("orden", "nombre", "telefono", "observaciones")
 
 
+class AdjuntoInline(admin.TabularInline):
+    """Adjuntos del requerimiento (HU-11), solo para consulta.
+
+    Se suben desde el formulario de radicación, que es el que valida tipo,
+    tamaño y contenido; el panel no los reemplaza para no saltarse esas reglas.
+    """
+
+    model = Adjunto
+    extra = 0
+    can_delete = True
+    fields = ("nombre_original", "tipo", "tamano", "subido_por", "subido_en")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Requerimiento)
 class RequerimientoAdmin(admin.ModelAdmin):
     list_display = (
@@ -86,4 +104,4 @@ class RequerimientoAdmin(admin.ModelAdmin):
     search_fields = ("consecutivo", "solicitante", "justificacion")
     date_hierarchy = "fecha_solicitud"
     readonly_fields = ("consecutivo", "fecha_solicitud")
-    inlines = [ItemInline, ProveedorSugeridoInline]
+    inlines = [ItemInline, ProveedorSugeridoInline, AdjuntoInline]

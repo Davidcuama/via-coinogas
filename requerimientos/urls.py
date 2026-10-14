@@ -11,6 +11,8 @@ urlpatterns = [
     path("mios/", views.MisRequerimientosView.as_view(), name="mios"),
     # HU-22: ficha completa del requerimiento para el area de compras.
     path("ficha/<str:consecutivo>/", views.FichaRequerimientoView.as_view(), name="ficha"),
+    # HU-11: los adjuntos se entregan por una vista que revisa permisos.
+    path("adjunto/<int:pk>/", views.DescargarAdjuntoView.as_view(), name="adjunto"),
     # HU-18: guardado temporal del borrador, antes de la ruta con consecutivo.
     path("borrador/guardar/", views.GuardarBorradorView.as_view(), name="guardar_borrador"),
     path("borrador/descartar/", views.DescartarBorradorView.as_view(), name="descartar_borrador"),

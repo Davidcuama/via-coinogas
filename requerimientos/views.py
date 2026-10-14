@@ -4,20 +4,23 @@ from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import redirect
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
+from . import adjuntos as reglas_adjuntos
 from . import borradores, perfiles
 from .forms import (
+    AdjuntosForm,
     FiltroBandejaForm,
     ItemFormSet,
     ProveedoresSugeridosForm,
     RequerimientoForm,
     item_formset_desde_borrador,
 )
-from .models import Requerimiento
+from .models import Adjunto, Requerimiento
 from .notificaciones import notificar_confirmacion_solicitante, notificar_radicacion
 
 
@@ -201,6 +204,22 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
                 contexto["proveedores"] = ProveedoresSugeridosForm(
                     initial=borradores.valores(self.request.session)
                 )
+        # HU-11: fotos y documentos de soporte.
+        if "adjuntos" not in contexto:
+            contexto["adjuntos"] = AdjuntosForm()
+        # Los mismos límites que aplica el servidor, para que el navegador avise
+        # antes de enviar. Viajan como JSON (json_script), no pegados en el script.
+        contexto["limite_adjuntos"] = {
+            "maximo": reglas_adjuntos.MAX_ADJUNTOS,
+            "tamano": reglas_adjuntos.TAMANO_MAXIMO,
+            "extensiones": list(reglas_adjuntos.EXTENSIONES),
+        }
+        # Si el formulario vuelve con errores, el navegador ya vació el selector
+        # de archivos (no puede rellenarlo, por seguridad). Se avisa para que el
+        # solicitante no crea que sus adjuntos siguen ahí.
+        contexto["archivos_descartados"] = self.request.method == "POST" and bool(
+            self.request.FILES.getlist("archivos")
+        )
         return contexto
 
     def form_valid(self, form):
@@ -208,12 +227,14 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
         # se devuelve el formulario completo sin tocar la base de datos.
         items = ItemFormSet(self.request.POST)
         proveedores = ProveedoresSugeridosForm(self.request.POST)
-        # Se validan ambos antes de decidir, para mostrar todos los errores de
+        adjuntos = AdjuntosForm(self.request.POST, self.request.FILES)
+        # Se validan todos antes de decidir, para mostrar todos los errores de
         # una vez y no uno por cada intento de radicar.
         items_validos = items.is_valid()
         proveedores_validos = proveedores.is_valid()
-        if not (items_validos and proveedores_validos):
-            return self.form_invalid(form, items, proveedores)
+        adjuntos_validos = adjuntos.is_valid()
+        if not (items_validos and proveedores_validos and adjuntos_validos):
+            return self.form_invalid(form, items, proveedores, adjuntos)
 
         form.instance.creado_por = self.request.user
 
@@ -225,6 +246,10 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
             self.object.renumerar_items()
             # HU-13: los proveedores sugeridos entran en la misma transacción.
             proveedores.guardar(self.object)
+            # HU-11: y los adjuntos. Si la transacción se deshiciera, el archivo
+            # ya escrito en disco quedaría sin registro que lo apunte; es un
+            # caso raro y no deja datos inconsistentes, solo un archivo de más.
+            reglas_adjuntos.guardar(self.object, adjuntos.adjuntos_validos(), self.request.user)
             # HU-19 + HU-35: los avisos se disparan solo si la transacción llegó a
             # confirmarse; si la radicación se deshace, no se avisa de un
             # requerimiento que no existe.
@@ -236,7 +261,7 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
         borradores.descartar(self.request.session)
         return respuesta
 
-    def form_invalid(self, form, items=None, proveedores=None):
+    def form_invalid(self, form, items=None, proveedores=None, adjuntos=None):
         # HU-06: el formset se conserva tal como lo envió el usuario para que no
         # pierda las filas que ya había diligenciado. Igual los proveedores (HU-13).
         if items is None:
@@ -244,8 +269,15 @@ class RequerimientoCreateView(LoginRequiredMixin, CreateView):
         if proveedores is None:
             proveedores = ProveedoresSugeridosForm(self.request.POST)
             proveedores.is_valid()
+        # HU-11: se valida igual, para que los errores de los archivos aparezcan
+        # junto con los del encabezado y no en un segundo intento.
+        if adjuntos is None:
+            adjuntos = AdjuntosForm(self.request.POST, self.request.FILES)
+            adjuntos.is_valid()
         return self.render_to_response(
-            self.get_context_data(form=form, items=items, proveedores=proveedores)
+            self.get_context_data(
+                form=form, items=items, proveedores=proveedores, adjuntos=adjuntos
+            )
         )
 
     def get_success_url(self):
@@ -272,7 +304,7 @@ class RequerimientoConfirmacionView(LoginRequiredMixin, DetailView):
     def get_queryset(self):
         # HU-17: el resumen recorre los ítems y su unidad de medida; se traen de
         # una vez para no disparar una consulta por fila.
-        consulta = super().get_queryset().prefetch_related("items__unidad_medida")
+        consulta = super().get_queryset().prefetch_related("items__unidad_medida", "adjuntos")
         # Un consecutivo es adivinable (REQ-2026-0001), así que la pantalla no
         # puede quedar abierta: cada quien ve lo suyo y compras lo ve todo.
         usuario = self.request.user
@@ -296,7 +328,34 @@ class FichaRequerimientoView(PerfilRequeridoMixin, DetailView):
             super()
             .get_queryset()
             .select_related("area", "centro_costo", "prioridad", "creado_por")
-            .prefetch_related("items__unidad_medida", "proveedores_sugeridos")
+            .prefetch_related("items__unidad_medida", "proveedores_sugeridos", "adjuntos")
+        )
+
+
+class DescargarAdjuntoView(LoginRequiredMixin, View):
+    """Entrega un adjunto a quien tiene derecho a verlo (HU-11).
+
+    Los archivos no se publican en una ruta estática: el consecutivo que va en
+    su ruta es adivinable, así que cualquiera con sesión podría recorrerlos.
+    Pasan por aquí, que revisa que sea de quien radicó o del área de compras.
+
+    A quien no tiene permiso se le responde 404 y no 403: decirle que no puede
+    verlo ya le confirma que existe.
+    """
+
+    def get(self, request, pk):
+        adjunto = get_object_or_404(Adjunto.objects.select_related("requerimiento"), pk=pk)
+        if not reglas_adjuntos.puede_ver(request.user, adjunto):
+            raise Http404("Adjunto no encontrado.")
+        try:
+            archivo = adjunto.archivo.open("rb")
+        except FileNotFoundError as error:
+            raise Http404("El archivo ya no está disponible.") from error
+        # Las fotos y los PDF se abren en una pestaña; lo demás se descarga.
+        return FileResponse(
+            archivo,
+            as_attachment=not reglas_adjuntos.se_ve_en_el_navegador(adjunto),
+            filename=adjunto.nombre_original,
         )
 
 

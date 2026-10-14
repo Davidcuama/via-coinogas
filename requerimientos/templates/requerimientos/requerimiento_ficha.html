@@ -166,23 +166,21 @@
     </div>
   </div>
 
-  {% if requerimiento.adjuntos.exists %}
-    <div class="card mb-4" id="adjuntos">
-      <div class="card-header"><h2>Adjuntos</h2></div>
-      <div class="card-body">
-        <div class="row g-3">
-          {% for adjunto in requerimiento.adjuntos.all %}
-            <div class="col-6 col-md-3">
-              <a href="{{ adjunto.archivo.url }}" target="_blank" rel="noopener"
-                 class="d-block text-decoration-none">
-                {{ adjunto }}
-              </a>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
+  {# HU-11: los adjuntos pasan por la vista de descarga, que revisa permisos; #}
+  {# por eso no se enlaza el archivo directo. #}
+  <div class="card mb-4" id="adjuntos">
+    <div class="card-header">
+      <h2>Fotografías y documentos de soporte</h2>
+      <span class="mini">{{ requerimiento.adjuntos.all|length }} adjunto{{ requerimiento.adjuntos.all|length|pluralize }}</span>
     </div>
-  {% endif %}
+    <div class="card-body">
+      {% if requerimiento.adjuntos.all %}
+        {% include "requerimientos/_lista_adjuntos.html" with adjuntos=requerimiento.adjuntos.all %}
+      {% else %}
+        <p class="text-muted mb-0">El solicitante no adjuntó archivos.</p>
+      {% endif %}
+    </div>
+  </div>
 
 </div>
 {% endblock %}
