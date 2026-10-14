@@ -1,7 +1,14 @@
 from django import forms
 from django.utils import timezone
 
-from .models import JUSTIFICACION_MAX_LENGTH, Item, Prioridad, Requerimiento, UnidadMedida
+from .models import (
+    JUSTIFICACION_MAX_LENGTH,
+    Area,
+    Item,
+    Prioridad,
+    Requerimiento,
+    UnidadMedida,
+)
 
 # HU-15: campos obligatorios del formato ADM-F-22 «Manifestación Requerimiento de
 # Compra». El formato exige al pie que no quede ningún espacio sin diligenciar;
@@ -262,3 +269,99 @@ def item_formset_desde_borrador(filas):
     if not filas:
         return ItemFormSet()
     return _fabrica_item_formset(extra=len(filas) - 1)(initial=filas)
+
+
+# HU-21: criterios de ordenamiento de la bandeja. La llave es lo que viaja en la
+# URL (?orden=...) y el valor, la etiqueta del selector y el `order_by` que aplica.
+# El último criterio de cada uno es el `pk`, para que el orden sea estable entre
+# páginas cuando dos requerimientos empatan.
+ORDEN_BANDEJA = {
+    "recientes": ("Más recientes primero", ("-fecha_solicitud", "-pk")),
+    "antiguos": ("Más antiguos primero", ("fecha_solicitud", "pk")),
+    "requerida": ("Fecha requerida más próxima", ("fecha_requerida", "prioridad__orden", "pk")),
+    "prioridad": ("Prioridad (Alta primero)", ("prioridad__orden", "fecha_requerida", "pk")),
+}
+ORDEN_BANDEJA_DEFECTO = "recientes"
+
+
+class FiltroBandejaForm(forms.Form):
+    """Filtros y ordenamiento de la bandeja del área de compras (HU-21).
+
+    Viaja por GET para que una vista filtrada se pueda recargar, compartir o
+    paginar sin perder los criterios. Todo es opcional: sin filtros, la bandeja
+    muestra todo lo radicado. Un valor inválido (un área que no existe, una
+    fecha mal escrita) se informa en el formulario y ese criterio simplemente
+    no se aplica: el analista nunca se queda con la bandeja en blanco por un
+    parámetro dañado en la URL.
+
+    El filtro por estado entra cuando HU-23 cree el campo `estado` en el
+    modelo; aquí basta con agregar el campo y su línea en `aplicar`.
+    """
+
+    area = forms.ModelChoiceField(
+        label="Área o proyecto",
+        queryset=Area.objects.all(),
+        required=False,
+        empty_label="Todas",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    prioridad = forms.ModelChoiceField(
+        label="Prioridad",
+        queryset=Prioridad.objects.all(),
+        required=False,
+        empty_label="Todas",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    desde = forms.DateField(
+        label="Radicado desde",
+        required=False,
+        widget=forms.DateInput(attrs={"class": "form-control form-control-sm", "type": "date"}),
+    )
+    hasta = forms.DateField(
+        label="Radicado hasta",
+        required=False,
+        widget=forms.DateInput(attrs={"class": "form-control form-control-sm", "type": "date"}),
+    )
+    orden = forms.ChoiceField(
+        label="Ordenar por",
+        required=False,
+        choices=[(clave, etiqueta) for clave, (etiqueta, _) in ORDEN_BANDEJA.items()],
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+
+    def clean(self):
+        datos = super().clean()
+        desde, hasta = datos.get("desde"), datos.get("hasta")
+        if desde and hasta and desde > hasta:
+            # Se descartan ambas fechas: no hay forma de saber cuál de las dos
+            # quiso decir el analista, y aplicar solo una daría un resultado
+            # que él no pidió.
+            datos.pop("desde")
+            datos.pop("hasta")
+            raise forms.ValidationError(
+                "La fecha «desde» no puede ser posterior a la fecha «hasta»."
+            )
+        return datos
+
+    def criterios(self):
+        """Criterios válidos, incluso si otros campos del formulario fallaron."""
+        self.is_valid()
+        return {campo: valor for campo, valor in self.cleaned_data.items() if valor}
+
+    def hay_filtros(self):
+        """``True`` si hay algún filtro aplicado (el orden no cuenta como filtro)."""
+        return any(campo != "orden" for campo in self.criterios())
+
+    def aplicar(self, consulta):
+        """Filtra y ordena la consulta de la bandeja con los criterios válidos."""
+        criterios = self.criterios()
+        if "area" in criterios:
+            consulta = consulta.filter(area=criterios["area"])
+        if "prioridad" in criterios:
+            consulta = consulta.filter(prioridad=criterios["prioridad"])
+        if "desde" in criterios:
+            consulta = consulta.filter(fecha_solicitud__gte=criterios["desde"])
+        if "hasta" in criterios:
+            consulta = consulta.filter(fecha_solicitud__lte=criterios["hasta"])
+        orden = criterios.get("orden", ORDEN_BANDEJA_DEFECTO)
+        return consulta.order_by(*ORDEN_BANDEJA[orden][1])

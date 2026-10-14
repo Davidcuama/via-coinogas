@@ -2442,3 +2442,150 @@ class CrearRolAnaliticaTests(TestCase):
         self.assertFalse(any(s.startswith("CREATE ROLE") for s in sql))
         self.assertTrue(any(s.startswith('ALTER ROLE "analitica_lectura"') for s in sql))
         self.assertIn("ya existía", salida.getvalue())
+
+
+class FiltrosBandejaTests(VistaTestCase):
+    """HU-21: filtrar y ordenar la bandeja por área, prioridad y fecha.
+
+    Casos de prueba CP-S2-04 (filtrar) y CP-S2-05 (ordenar) de la Wiki.
+    """
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("requerimientos:bandeja")
+        self.mantenimiento = Area.objects.create(nombre="Mantenimiento")
+        self.logistica = Area.objects.create(nombre="Logística")
+        self.centro = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.alta = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.media = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.baja = Prioridad.objects.create(nombre=Prioridad.BAJA, orden=3)
+        hoy = timezone.localdate()
+        # Tres radicaciones que se diferencian en cada criterio de la historia.
+        self.antiguo = self._radicar(
+            self.mantenimiento, self.baja, radicado=hoy - timedelta(days=20), dias_para_requerir=30
+        )
+        self.urgente = self._radicar(
+            self.logistica, self.alta, radicado=hoy - timedelta(days=10), dias_para_requerir=2
+        )
+        self.reciente = self._radicar(
+            self.mantenimiento, self.media, radicado=hoy, dias_para_requerir=15
+        )
+
+    def _radicar(self, area, prioridad, radicado, dias_para_requerir):
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=area,
+            centro_costo=self.centro,
+            justificacion="Compra de repuestos.",
+            prioridad=prioridad,
+            fecha_requerida=timezone.localdate() + timedelta(days=dias_para_requerir),
+        )
+        # `fecha_solicitud` la asigna el sistema al radicar (auto_now_add); para
+        # simular radicaciones de otros días se ajusta directo en la base.
+        Requerimiento.objects.filter(pk=requerimiento.pk).update(fecha_solicitud=radicado)
+        requerimiento.refresh_from_db()
+        return requerimiento
+
+    def _consecutivos(self, **parametros):
+        respuesta = self.client.get(self.url, parametros)
+        self.assertEqual(respuesta.status_code, 200)
+        return [r.consecutivo for r in respuesta.context["requerimientos"]]
+
+    # --- Happy path: cada criterio filtra lo que debe ---
+
+    def test_sin_filtros_muestra_todo_de_lo_mas_reciente_a_lo_mas_antiguo(self):
+        self.assertEqual(
+            self._consecutivos(),
+            [self.reciente.consecutivo, self.urgente.consecutivo, self.antiguo.consecutivo],
+        )
+
+    def test_filtra_por_area(self):
+        consecutivos = self._consecutivos(area=self.logistica.pk)
+        self.assertEqual(consecutivos, [self.urgente.consecutivo])
+
+    def test_filtra_por_prioridad(self):
+        consecutivos = self._consecutivos(prioridad=self.baja.pk)
+        self.assertEqual(consecutivos, [self.antiguo.consecutivo])
+
+    def test_filtra_por_rango_de_fechas_de_radicacion(self):
+        hoy = timezone.localdate()
+        consecutivos = self._consecutivos(
+            desde=(hoy - timedelta(days=15)).isoformat(),
+            hasta=(hoy - timedelta(days=5)).isoformat(),
+        )
+        self.assertEqual(consecutivos, [self.urgente.consecutivo])
+
+    def test_los_filtros_se_combinan(self):
+        consecutivos = self._consecutivos(area=self.mantenimiento.pk, prioridad=self.media.pk)
+        self.assertEqual(consecutivos, [self.reciente.consecutivo])
+
+    def test_ordena_por_prioridad_con_alta_primero(self):
+        self.assertEqual(
+            self._consecutivos(orden="prioridad"),
+            [self.urgente.consecutivo, self.reciente.consecutivo, self.antiguo.consecutivo],
+        )
+
+    def test_ordena_por_la_fecha_requerida_mas_proxima(self):
+        self.assertEqual(
+            self._consecutivos(orden="requerida"),
+            [self.urgente.consecutivo, self.reciente.consecutivo, self.antiguo.consecutivo],
+        )
+
+    def test_ordena_de_lo_mas_antiguo_a_lo_mas_reciente(self):
+        self.assertEqual(
+            self._consecutivos(orden="antiguos"),
+            [self.antiguo.consecutivo, self.urgente.consecutivo, self.reciente.consecutivo],
+        )
+
+    def test_el_formulario_conserva_los_filtros_elegidos(self):
+        respuesta = self.client.get(self.url, {"area": self.logistica.pk})
+        self.assertContains(respuesta, f'<option value="{self.logistica.pk}" selected>')
+        self.assertContains(respuesta, "1 resultado con los filtros aplicados")
+
+    def test_la_paginacion_conserva_los_filtros(self):
+        for _ in range(26):
+            self._radicar(self.logistica, self.alta, timezone.localdate(), 5)
+        respuesta = self.client.get(self.url, {"area": self.logistica.pk})
+        self.assertContains(respuesta, f"?page=2&area={self.logistica.pk}")
+
+    # --- Flujo alterno: datos que no permiten filtrar ---
+
+    def test_sin_coincidencias_muestra_un_aviso_y_no_falla(self):
+        otra_area = Area.objects.create(nombre="Sistemas")
+        respuesta = self.client.get(self.url, {"area": otra_area.pk})
+        self.assertEqual(list(respuesta.context["requerimientos"]), [])
+        self.assertContains(respuesta, "Ningún requerimiento coincide con los filtros")
+
+    def test_un_valor_invalido_se_informa_y_no_vacia_la_bandeja(self):
+        respuesta = self.client.get(self.url, {"area": "99999", "prioridad": self.alta.pk})
+        self.assertContains(respuesta, "Algunos filtros no se aplicaron")
+        # El área inválida se ignora; la prioridad, que sí es válida, se aplica.
+        consecutivos = [r.consecutivo for r in respuesta.context["requerimientos"]]
+        self.assertEqual(consecutivos, [self.urgente.consecutivo])
+
+    def test_una_fecha_mal_escrita_no_rompe_la_bandeja(self):
+        respuesta = self.client.get(self.url, {"desde": "no-es-fecha"})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(respuesta.context["requerimientos"]), 3)
+        self.assertContains(respuesta, "Algunos filtros no se aplicaron")
+
+    def test_un_rango_invertido_se_rechaza_y_no_se_aplica(self):
+        hoy = timezone.localdate()
+        respuesta = self.client.get(
+            self.url, {"desde": hoy.isoformat(), "hasta": (hoy - timedelta(days=30)).isoformat()}
+        )
+        self.assertContains(respuesta, "no puede ser posterior")
+        self.assertEqual(len(respuesta.context["requerimientos"]), 3)
+
+    def test_un_orden_desconocido_cae_en_el_orden_por_defecto(self):
+        self.assertEqual(
+            self._consecutivos(orden="inventado"),
+            [self.reciente.consecutivo, self.urgente.consecutivo, self.antiguo.consecutivo],
+        )
+
+    def test_un_solicitante_no_puede_filtrar_la_bandeja(self):
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(otro.get(self.url, {"area": self.logistica.pk}).status_code, 403)

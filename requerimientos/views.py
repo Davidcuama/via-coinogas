@@ -10,7 +10,12 @@ from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from . import borradores, perfiles
-from .forms import ItemFormSet, RequerimientoForm, item_formset_desde_borrador
+from .forms import (
+    FiltroBandejaForm,
+    ItemFormSet,
+    RequerimientoForm,
+    item_formset_desde_borrador,
+)
 from .models import Requerimiento
 from .notificaciones import notificar_confirmacion_solicitante, notificar_radicacion
 
@@ -70,11 +75,12 @@ class PerfilRequeridoMixin(AccessMixin):
 
 
 class BandejaView(PerfilRequeridoMixin, ListView):
-    """Bandeja del área de compras.
+    """Bandeja del área de compras (HU-20, HU-21).
 
-    Versión preliminar: lista lo radicado, de lo más reciente a lo más antiguo.
-    Los filtros, el ordenamiento y la gestión de estados son HU-20 a HU-24 y no
-    se adelantan aquí.
+    Lista lo radicado y deja filtrarlo por área, prioridad y rango de fechas de
+    radicación, y ordenarlo por fecha de radicación, fecha requerida o
+    prioridad, para que el analista decida qué atender primero. Sin filtros
+    muestra todo, de lo más reciente a lo más antiguo.
     """
 
     template_name = "requerimientos/bandeja.html"
@@ -82,12 +88,28 @@ class BandejaView(PerfilRequeridoMixin, ListView):
     paginate_by = 25
     perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
 
+    def get_filtros(self):
+        if not hasattr(self, "_filtros"):
+            self._filtros = FiltroBandejaForm(self.request.GET)
+        return self._filtros
+
     def get_queryset(self):
-        return (
-            Requerimiento.objects.select_related("area", "centro_costo", "prioridad")
-            .prefetch_related("items")
-            .order_by("-fecha_solicitud", "-pk")
-        )
+        consulta = Requerimiento.objects.select_related(
+            "area", "centro_costo", "prioridad"
+        ).prefetch_related("items")
+        return self.get_filtros().aplicar(consulta)
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        filtros = self.get_filtros()
+        contexto["filtros"] = filtros
+        contexto["hay_filtros"] = filtros.hay_filtros()
+        # Los filtros viajan en cada enlace de paginación: sin esto, pasar a la
+        # página 2 devolvería la bandeja completa sin filtrar.
+        parametros = self.request.GET.copy()
+        parametros.pop("page", None)
+        contexto["parametros_filtro"] = parametros.urlencode()
+        return contexto
 
 
 class MisRequerimientosView(LoginRequiredMixin, ListView):

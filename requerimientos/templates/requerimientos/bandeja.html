@@ -8,22 +8,78 @@
   <div class="banda mb-4">
     <div class="eyebrow">Área de compras</div>
     <h1>Bandeja de requerimientos</h1>
-    <p class="sub">Todo lo radicado, de lo más reciente a lo más antiguo.</p>
+    <p class="sub">Todo lo radicado. Filtra y ordena para decidir qué atender primero.</p>
   </div>
+
+  {% comment %}
+    HU-21: los filtros viajan por GET para que la vista filtrada se pueda
+    recargar, compartir y paginar sin perder los criterios.
+  {% endcomment %}
+  <form method="get" class="card mb-3" id="filtros-bandeja" role="search">
+    <div class="card-body">
+      {% if filtros.errors %}
+        <div class="alert alert-warning py-2 small" role="alert" id="errores-filtros">
+          Algunos filtros no se aplicaron:
+          <ul class="mb-0">
+            {% for campo in filtros %}{% for error in campo.errors %}<li>{{ campo.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+            {% for error in filtros.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-3">
+          <label for="{{ filtros.area.id_for_label }}" class="mini mb-1">{{ filtros.area.label }}</label>
+          {{ filtros.area }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.prioridad.id_for_label }}" class="mini mb-1">{{ filtros.prioridad.label }}</label>
+          {{ filtros.prioridad }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.desde.id_for_label }}" class="mini mb-1">{{ filtros.desde.label }}</label>
+          {{ filtros.desde }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.hasta.id_for_label }}" class="mini mb-1">{{ filtros.hasta.label }}</label>
+          {{ filtros.hasta }}
+        </div>
+        <div class="col-12 col-md-3">
+          <label for="{{ filtros.orden.id_for_label }}" class="mini mb-1">{{ filtros.orden.label }}</label>
+          {{ filtros.orden }}
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary btn-sm" id="aplicar-filtros">Aplicar</button>
+        {% if request.GET %}
+          <a href="{% url 'requerimientos:bandeja' %}" class="btn btn-outline-secondary btn-sm"
+             id="limpiar-filtros">Limpiar</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
 
   <div class="card">
     <div class="card-header">
       <h2>Radicaciones</h2>
-      <span class="mini">{{ page_obj.paginator.count }} en total</span>
+      {% if hay_filtros %}
+        <span class="mini" id="conteo-resultados">
+          {{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }} con los filtros aplicados
+        </span>
+      {% else %}
+        <span class="mini">{{ page_obj.paginator.count }} en total</span>
+      {% endif %}
     </div>
     <div class="card-body p-0">
-      {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True enlazar_ficha=True vacio="Todavía no hay requerimientos radicados." %}
+      {% if hay_filtros %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True enlazar_ficha=True vacio="Ningún requerimiento coincide con los filtros. Prueba con otros criterios o límpialos." %}
+      {% else %}
+        {% include "requerimientos/_tabla_requerimientos.html" with mostrar_solicitante=True enlazar_ficha=True vacio="Todavía no hay requerimientos radicados." %}
+      {% endif %}
     </div>
   </div>
 
   <p class="form-text mt-3">
-    Versión preliminar de la bandeja. Los filtros, el ordenamiento y la gestión
-    de estados llegan con las historias HU-20 a HU-24.
+    El filtro por estado se agrega cuando entre la gestión de estados (HU-23).
   </p>
 
 </div>
