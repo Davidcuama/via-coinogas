@@ -13,7 +13,7 @@ No toca el modelo ni agrega migraciones: solo inserta filas.
 """
 
 import random
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -24,7 +24,9 @@ from django.utils import timezone
 
 from requerimientos.models import (
     Area,
+    CambioEstado,
     CentroCosto,
+    EstadoRequerimiento,
     Item,
     Prioridad,
     Requerimiento,
@@ -41,6 +43,21 @@ SOLICITANTES = (
     ("carmen.ruiz", "Carmen", "Ruiz"),
     ("jorge.patino", "Jorge", "Patiño"),
 )
+
+# Quien mueve los estados en la demostración (HU-31): la bitácora pide un autor.
+ANALISTA_DEMO = ("compras", "Analista", "Compras")
+
+# HU-31: etapas del flujo normal de compras (HU-23) y cuántos días puede tomar
+# cada una. Sin esta historia el indicador de tiempo de atención saldría vacío.
+ETAPAS_ATENCION = (
+    (EstadoRequerimiento.EN_REVISION, (0, 3)),
+    (EstadoRequerimiento.EN_COTIZACION, (1, 6)),
+    (EstadoRequerimiento.CERRADO, (1, 12)),
+)
+
+# Hasta qué etapa llega cada requerimiento: 0 = sigue radicado, 3 = cerrado. El
+# cierre pesa doble para que haya suficientes cerrados con qué promediar.
+AVANCES_POSIBLES = (0, 1, 2, 3, 3)
 
 AREAS = (
     "Mantenimiento",
@@ -210,6 +227,7 @@ class Command(BaseCommand):
     def _sembrar(self, cantidad, meses, azar):
         areas, centros, prioridades, unidades = self._catalogos()
         cuentas = self._cuentas()
+        analista = self._analista()
         hoy = timezone.localdate()
 
         # Se reparten dentro del año en curso: el consecutivo lleva el año de
@@ -242,9 +260,41 @@ class Command(BaseCommand):
                     # La fecha requerida siempre cae después de la de solicitud.
                     fecha_requerida=fecha_solicitud + timedelta(days=azar.randint(5, 45)),
                 )
+                self._simular_atencion(requerimiento, fecha_solicitud, analista, hoy, azar)
                 creados += 1
 
         self._resumen(creados)
+
+    def _analista(self):
+        """Cuenta de demostración que firma los cambios de estado (HU-31)."""
+        usuario, nombre, apellido = ANALISTA_DEMO
+        cuenta, _ = get_user_model().objects.get_or_create(
+            username=f"{PREFIJO_DEMO}{usuario}",
+            defaults={"first_name": nombre, "last_name": apellido},
+        )
+        return cuenta
+
+    def _simular_atencion(self, requerimiento, fecha_solicitud, analista, hoy, azar):
+        """Avanza el requerimiento por el flujo de compras con fechas creíbles (HU-31).
+
+        Usa ``cambiar_estado``, así que respeta las transiciones permitidas y deja
+        la bitácora igual que en la operación real. Nunca fecha un cambio en el
+        futuro: si la siguiente etapa caería después de hoy, se queda donde va.
+        """
+        fecha = fecha_solicitud
+        for estado, (minimo, maximo) in ETAPAS_ATENCION[: azar.choice(AVANCES_POSIBLES)]:
+            fecha += timedelta(days=azar.randint(minimo, maximo))
+            if fecha > hoy:
+                return
+            self._transicion(requerimiento, estado, analista, fecha)
+
+    @staticmethod
+    def _transicion(requerimiento, estado, usuario, fecha, observacion=""):
+        """Hace el cambio de estado y lo fecha en el día simulado, a media mañana."""
+        cambio = requerimiento.cambiar_estado(estado, usuario, observacion)
+        # `fecha` es auto_now_add: igual que con la solicitud, se corrige con UPDATE.
+        momento = timezone.make_aware(datetime.combine(fecha, time(10, 0)))
+        CambioEstado.objects.filter(pk=cambio.pk).update(fecha=momento)
 
     def _agregar_items(self, requerimiento, unidades, azar):
         """Entre 1 y 4 ítems, algunos sin precio para que el total salga parcial."""
@@ -272,7 +322,11 @@ class Command(BaseCommand):
         demo = self._consulta_demo()
         self.stdout.write("")
         self.stdout.write("Reparto sembrado:")
-        for etiqueta, campo in (("Área", "area__nombre"), ("Prioridad", "prioridad__nombre")):
+        for etiqueta, campo in (
+            ("Área", "area__nombre"),
+            ("Prioridad", "prioridad__nombre"),
+            ("Estado", "estado"),
+        ):
             self.stdout.write(f"  Por {etiqueta.lower()}:")
             conteos = demo.values_list(campo).order_by(campo)
             vistos = {}

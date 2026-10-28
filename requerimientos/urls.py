@@ -9,6 +9,8 @@ urlpatterns = [
     # Bandeja del área de compras y consulta propia del solicitante.
     path("bandeja/", views.BandejaView.as_view(), name="bandeja"),
     path("mios/", views.MisRequerimientosView.as_view(), name="mios"),
+    # Épica 7 - Analítica: indicadores del área de compras (HU-31).
+    path("indicadores/", views.IndicadoresView.as_view(), name="indicadores"),
     # HU-22: ficha completa del requerimiento para el area de compras.
     path("ficha/<str:consecutivo>/", views.FichaRequerimientoView.as_view(), name="ficha"),
     # HU-23: el área de compras cambia el estado desde la ficha.

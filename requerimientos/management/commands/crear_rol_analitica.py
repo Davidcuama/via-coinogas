@@ -1,7 +1,7 @@
 """HU-29: crea el rol de base de datos de solo lectura para analítica.
 
 El tablero (Power BI o el propio, HU-30) se conecta con este rol, que solo puede
-hacer ``SELECT`` sobre las dos vistas analíticas. No alcanza las tablas
+hacer ``SELECT`` sobre las vistas analíticas. No alcanza las tablas
 transaccionales ni puede insertar, actualizar o eliminar nada. Así, abrir el dato
 al reporte no abre una puerta para corromper la operación.
 
@@ -22,7 +22,13 @@ from django.db import connection
 
 ROL = "analitica_lectura"
 
-VISTAS = ("analitica_requerimientos", "analitica_items")
+VISTAS = (
+    "analitica_requerimientos",
+    "analitica_items",
+    # HU-31: indicador de tiempo de atención.
+    "analitica_tiempo_atencion",
+    "analitica_tiempo_atencion_mensual",
+)
 
 
 class Command(BaseCommand):
