@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+{% load static admin_saas %}
+
+{% block titulo %}Panel de Control Global · Administración Coinogas{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 1140px;">
+
+  {# Banda superior de identidad Coinogas con gradiente corporativo #}
+  <div class="banda mb-4">
+    <div class="eyebrow">Panel Central de Gobierno y Parametrización</div>
+    <h1>Panel de Control Global</h1>
+    <p class="sub">Gestión unificada de entidades, modelos del sistema, seguridad y configuraciones maestras de Coinogas.</p>
+  </div>
+
+  {# Indicadores métricos rápidos estilo Corporate SaaS #}
+  {% kpis_administracion app_list as kpis %}
+  <div class="admin-kpi-grid mb-4">
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-icon text-coinogas-blue">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      </div>
+      <div class="admin-kpi-info">
+        <span class="admin-kpi-label">Entidades Globales</span>
+        <span class="admin-kpi-val">{{ kpis.total_entidades }}</span>
+      </div>
+    </div>
+
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-icon text-coinogas-green">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><polyline points="14 2 14 8 20 8"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></svg>
+      </div>
+      <div class="admin-kpi-info">
+        <span class="admin-kpi-label">Total Registros</span>
+        <span class="admin-kpi-val">{{ kpis.total_registros }}</span>
+      </div>
+    </div>
+
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-icon text-coinogas-cyan">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div class="admin-kpi-info">
+        <span class="admin-kpi-label">Usuarios Activos</span>
+        <span class="admin-kpi-val">{{ kpis.total_usuarios }}</span>
+      </div>
+    </div>
+
+    <div class="admin-kpi-card">
+      <div class="admin-kpi-icon text-emerald-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+      <div class="admin-kpi-info">
+        <span class="admin-kpi-label">Estado Global</span>
+        <span class="admin-kpi-val" style="font-size: 16px; color: var(--verde-oscuro); display: flex; align-items: center; gap: 6px;">
+          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde);"></span>
+          100% Operativo
+        </span>
+      </div>
+    </div>
+  </div>
+
+  {# Barra de Filtros y Búsqueda (misma estructura visual de image_1.png) #}
+  <div class="card mb-3" id="filtros-admin-panel" role="search">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-md-4">
+          <label for="filtro-busqueda-admin" class="mini mb-1">Buscar por Entidad, Modelo o Módulo</label>
+          <div class="position-relative">
+            <input type="text" id="filtro-busqueda-admin" class="form-control form-control-sm"
+                   placeholder="Ej: Usuarios, Requerimientos, Áreas..." autocomplete="off">
+          </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <label for="filtro-modulo-admin" class="mini mb-1">Módulo del Sistema</label>
+          <select id="filtro-modulo-admin" class="form-select form-select-sm">
+            <option value="todos">Todos los módulos</option>
+            <option value="seguridad">Autenticación & Seguridad</option>
+            <option value="requerimientos">Requerimientos & Compras</option>
+            <option value="maestros">Maestros Operativos</option>
+            <option value="sistema">Configuración del Sistema</option>
+          </select>
+        </div>
+
+        <div class="col-6 col-md-2">
+          <label for="filtro-estado-admin" class="mini mb-1">Estado Global</label>
+          <select id="filtro-estado-admin" class="form-select form-select-sm">
+            <option value="todos">Todos los estados</option>
+            <option value="Activo">Activo</option>
+            <option value="Configuración">Configuración</option>
+            <option value="Inactivo">Inactivo</option>
+          </select>
+        </div>
+
+        <div class="col-6 col-md-2">
+          <label for="filtro-orden-admin" class="mini mb-1">Orden</label>
+          <select id="filtro-orden-admin" class="form-select form-select-sm">
+            <option value="nombre">Nombre (A-Z)</option>
+            <option value="registros">Mayor volumen de registros</option>
+            <option value="reciente">Última modificación</option>
+          </select>
+        </div>
+
+        <div class="col-6 col-md-1 d-flex gap-1">
+          <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btn-limpiar-filtros" title="Limpiar filtros">
+            Limpiar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Tarjeta Principal: Panel de Control Global - Administración #}
+  <div class="card mb-4 shadow-sm border">
+    <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2 py-3 px-4">
+      <div class="d-flex align-items-center gap-2">
+        <h2 class="mb-0 fs-5 fw-bold text-coinogas-deep">Panel de Control Global - Administración</h2>
+        <span class="badge bg-light text-muted border ms-2" id="conteo-entidades-visibles">
+          {{ kpis.total_entidades }} entidades configuradas
+        </span>
+      </div>
+
+      {# Fila de Administración Directa / Botón de Acción Rápida #}
+      <div class="dropdown">
+        <button class="btn-anadir-global dropdown-toggle" type="button" id="dropdownAnadirEntidad" data-bs-toggle="dropdown" aria-expanded="false">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Añadir Nueva Entidad Global</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow-lg border p-2" aria-labelledby="dropdownAnadirEntidad" style="min-width: 270px; border-radius: 8px;">
+          <li class="dropdown-header text-uppercase text-muted px-2 py-1" style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em;">
+            Autenticación & Seguridad
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/auth/user/add/">
+              <span class="text-coinogas-blue">+</span> Nuevo Usuario
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/auth/group/add/">
+              <span class="text-coinogas-blue">+</span> Nuevo Grupo / Rol
+            </a>
+          </li>
+          <li><hr class="dropdown-divider my-1"></li>
+          <li class="dropdown-header text-uppercase text-muted px-2 py-1" style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em;">
+            Requerimientos & Maestros
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/requerimientos/area/add/">
+              <span class="text-coinogas-green">+</span> Nueva Área
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/requerimientos/centrocosto/add/">
+              <span class="text-coinogas-green">+</span> Nuevo Centro de Costo
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/requerimientos/prioridad/add/">
+              <span class="text-coinogas-green">+</span> Nueva Prioridad
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/requerimientos/unidadmedida/add/">
+              <span class="text-coinogas-green">+</span> Nueva Unidad de Medida
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item py-1.5 px-2 rounded d-flex align-items-center gap-2" href="/admin/requerimientos/requerimiento/add/">
+              <span class="text-coinogas-green">+</span> Nuevo Requerimiento
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    {# Tabla de Administración Unificada #}
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="tabla-admin-saas mb-0" id="tabla-entidades-admin">
+          <thead>
+            <tr>
+              <th style="min-width: 260px;">Módulo / Entidad</th>
+              <th style="width: 170px;">Categoría</th>
+              <th style="width: 110px;" class="text-end">Registros</th>
+              <th style="width: 130px;">Estado Global</th>
+              <th style="width: 180px;">Última Modificación</th>
+              <th style="width: 120px;" class="text-end">Acciones Rápidas</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-entidades">
+            {% for app in app_list %}
+              {% for model in app.models %}
+                {% with item=model|enriquecer_modelo %}
+                  <tr class="fila-entidad"
+                      data-nombre="{{ item.nombre|lower }}"
+                      data-modulo="{{ item.modulo_key }}"
+                      data-estado="{{ item.estado }}"
+                      data-registros="{{ item.conteo }}">
+                    <td>
+                      <div class="entidad-bloque">
+                        <div class="entidad-icono">
+                          {{ item.icono|safe }}
+                        </div>
+                        <div>
+                          <a href="{{ item.admin_url }}" class="entidad-titulo">
+                            {{ item.nombre }}
+                          </a>
+                          <div class="entidad-desc">{{ item.descripcion }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="chip" style="font-size: 11px;">{{ item.modulo_label }}</span>
+                    </td>
+                    <td class="text-end dato">
+                      <span class="fw-semibold text-coinogas-deep">{{ item.conteo }}</span>
+                    </td>
+                    <td>
+                      {% if item.estado == "Activo" %}
+                        <span class="badge-estado-saas badge-estado-activo">Activo</span>
+                      {% elif item.estado == "Configuración" %}
+                        <span class="badge-estado-saas badge-estado-configuracion">Configuración</span>
+                      {% else %}
+                        <span class="badge-estado-saas badge-estado-inactivo">{{ item.estado }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <div class="dato" style="font-size: 12px; color: var(--azul-profundo);">
+                        {{ item.ultima_modificacion }}
+                      </div>
+                      <div class="text-muted" style="font-size: 10.5px;">
+                        Por: <span class="fw-medium">{{ item.creador }}</span>
+                      </div>
+                    </td>
+                    <td class="text-end">
+                      <div class="d-inline-flex gap-1">
+                        {# Ver / Consultar registros #}
+                        <a href="{{ item.admin_url }}"
+                           class="btn-accion-icono"
+                           title="Ver registros de {{ item.nombre }}">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </a>
+                        {# Editar / Añadir registro #}
+                        {% if item.add_url %}
+                          <a href="{{ item.add_url }}"
+                             class="btn-accion-icono btn-accion-add"
+                             title="Añadir nuevo registro en {{ item.nombre }}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                          </a>
+                        {% else %}
+                          <a href="{{ item.admin_url }}"
+                             class="btn-accion-icono"
+                             title="Gestionar parámetros de {{ item.nombre }}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                          </a>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endwith %}
+              {% endfor %}
+            {% empty %}
+              <tr>
+                <td colspan="6" class="text-center text-muted py-5">
+                  No se encontraron modelos ni entidades configuradas en el sistema.
+                </td>
+              </tr>
+            {% endfor %}
+            <tr id="fila-sin-resultados" style="display: none;">
+              <td colspan="6" class="text-center text-muted py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-2 text-secondary"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <div class="fw-semibold">Ninguna entidad coincide con los criterios de búsqueda.</div>
+                <div class="small mt-1">Prueba con otros términos o limpia los filtros.</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# Pie de tarjeta con accesos directos #}
+    <div class="card-footer bg-light py-2.5 px-4 d-flex align-items-center justify-content-between flex-wrap gap-2 text-muted small" style="border-top: 1px solid var(--linea); font-size: 11.5px;">
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-secondary-subtle text-secondary-emphasis rounded-pill">ADM-F-22</span>
+        <span>Plataforma Unificada VIA Compras · Coinogas S.A. E.S.P.</span>
+      </div>
+      <div>
+        <a href="{% url 'requerimientos:bandeja' %}" class="text-decoration-none text-coinogas-blue fw-semibold">
+          Ir a Bandeja de Compras &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# Sección Adicional: Registro de Trazabilidad y Auditoría Reciente #}
+  <div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <h2 class="mb-0 fs-6">Registro de Auditoría y Acciones Recientes</h2>
+      <span class="mini">Trazabilidad oficial de cambios</span>
+    </div>
+    <div class="card-body p-3">
+      {% if log_entries %}
+        <ul class="list-unstyled mb-0">
+          {% for entry in log_entries|slice:":6" %}
+            <li class="d-flex align-items-center justify-content-between py-2 border-bottom">
+              <div class="d-flex align-items-center gap-2">
+                <span class="avatar" style="width: 26px; height: 26px; font-size: 10px;">{{ entry.user.username|slice:":2"|upper }}</span>
+                <div>
+                  <span class="fw-semibold" style="font-size: 12.5px;">{{ entry.object_repr }}</span>
+                  <span class="text-muted" style="font-size: 11px;">({{ entry.content_type.name }})</span>
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                {% if entry.is_addition %}
+                  <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 10px;">Añadido</span>
+                {% elif entry.is_change %}
+                  <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 10px;">Modificado</span>
+                {% elif entry.is_deletion %}
+                  <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 10px;">Eliminado</span>
+                {% endif %}
+                <span class="dato text-muted" style="font-size: 11px;">{{ entry.action_time|date:"d/m/Y H:i" }}</span>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-center text-muted py-3 small">
+          No hay registros de auditoría recientes en esta sesión. Todas las modificaciones quedarán asentadas con fecha, hora y responsable.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Filtros reactivos en tiempo real para la tabla unificada de administración
+  document.addEventListener('DOMContentLoaded', function () {
+    const inputBusqueda = document.getElementById('filtro-busqueda-admin');
+    const selectModulo = document.getElementById('filtro-modulo-admin');
+    const selectEstado = document.getElementById('filtro-estado-admin');
+    const selectOrden = document.getElementById('filtro-orden-admin');
+    const btnLimpiar = document.getElementById('btn-limpiar-filtros');
+    const conteoVisibles = document.getElementById('conteo-entidades-visibles');
+    const tbody = document.getElementById('tbody-entidades');
+    const filas = Array.from(tbody.querySelectorAll('.fila-entidad'));
+    const filaSinResultados = document.getElementById('fila-sin-resultados');
+
+    function filtrarTabla() {
+      const q = (inputBusqueda.value || '').trim().toLowerCase();
+      const mod = selectModulo.value;
+      const est = selectEstado.value;
+      let visibles = 0;
+
+      filas.forEach(function (fila) {
+        const nombre = fila.getAttribute('data-nombre') || '';
+        const modulo = fila.getAttribute('data-modulo') || '';
+        const estado = fila.getAttribute('data-estado') || '';
+
+        const coincideTexto = !q || nombre.includes(q);
+        const coincideModulo = (mod === 'todos') || (modulo === mod);
+        const coincideEstado = (est === 'todos') || (estado === est);
+
+        if (coincideTexto && coincideModulo && coincideEstado) {
+          fila.style.display = '';
+          visibles++;
+        } else {
+          fila.style.display = 'none';
+        }
+      });
+
+      if (filaSinResultados) {
+        filaSinResultados.style.display = visibles === 0 ? '' : 'none';
+      }
+
+      if (conteoVisibles) {
+        conteoVisibles.textContent = `${visibles} entidad${visibles === 1 ? '' : 'es'} visible${visibles === 1 ? '' : 's'}`;
+      }
+    }
+
+    function ordenarTabla() {
+      const criterio = selectOrden.value;
+      const filasOrdenables = Array.from(tbody.querySelectorAll('.fila-entidad'));
+
+      filasOrdenables.sort(function (a, b) {
+        if (criterio === 'nombre') {
+          const na = a.getAttribute('data-nombre') || '';
+          const nb = b.getAttribute('data-nombre') || '';
+          return na.localeCompare(nb);
+        } else if (criterio === 'registros') {
+          const ra = parseInt(a.getAttribute('data-registros') || '0', 10);
+          const rb = parseInt(b.getAttribute('data-registros') || '0', 10);
+          return rb - ra;
+        }
+        return 0;
+      });
+
+      filasOrdenables.forEach(function (fila) {
+        tbody.appendChild(fila);
+      });
+      if (filaSinResultados) {
+        tbody.appendChild(filaSinResultados);
+      }
+    }
+
+    if (inputBusqueda) inputBusqueda.addEventListener('input', filtrarTabla);
+    if (selectModulo) selectModulo.addEventListener('change', filtrarTabla);
+    if (selectEstado) selectEstado.addEventListener('change', filtrarTabla);
+    if (selectOrden) selectOrden.addEventListener('change', function () {
+      ordenarTabla();
+      filtrarTabla();
+    });
+
+    if (btnLimpiar) {
+      btnLimpiar.addEventListener('click', function () {
+        if (inputBusqueda) inputBusqueda.value = '';
+        if (selectModulo) selectModulo.value = 'todos';
+        if (selectEstado) selectEstado.value = 'todos';
+        if (selectOrden) selectOrden.value = 'nombre';
+        filtrarTabla();
+      });
+    }
+  });
+</script>
+{% endblock %}
