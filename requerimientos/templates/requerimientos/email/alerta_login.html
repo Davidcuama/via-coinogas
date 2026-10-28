@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, Helvetica, sans-serif; color: #212529;">
+  <p>Hola {{ nombre }},</p>
+
+  <p>Detectamos un inicio de sesión en tu cuenta de VIA Compras.</p>
+
+  <table cellpadding="6" cellspacing="0" border="0">
+    <tr><td><strong>Fecha y hora</strong></td><td>{{ fecha|date:"d/m/Y H:i" }}</td></tr>
+    {% if ip %}
+      <tr><td><strong>Dirección IP</strong></td><td>{{ ip }}</td></tr>
+    {% endif %}
+  </table>
+
+  <p>
+    Si fuiste tú, puedes ignorar este mensaje. Si no reconoces este acceso,
+    cambia tu contraseña de inmediato y avisa al área de soporte.
+  </p>
+
+  <hr>
+  <p style="color: #6c757d; font-size: 12px;">
+    VIA Compras — Coinogas. Mensaje automático de seguridad, no responder a este correo.
+  </p>
+</body>
+</html>
