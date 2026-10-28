@@ -14,6 +14,10 @@ Nombres de vista:
   - ``analitica_requerimientos``: un renglón por requerimiento, con área,
     centro de costo, prioridad, fechas, total estimado y conteo de ítems.
   - ``analitica_items``: un renglón por ítem, con su requerimiento y la unidad.
+  - ``analitica_tiempo_atencion`` (HU-31, migración ``0013``): un renglón por
+    requerimiento con los días entre su radicación y su cierre.
+  - ``analitica_tiempo_atencion_mensual`` (HU-31): promedio, mínimo y máximo
+    de días de atención por área y mes de cierre.
 """
 
 from django.db import models
@@ -82,3 +86,98 @@ class ItemAnalitico(_VistaSoloLectura):
 
     def __str__(self):
         return f"{self.consecutivo} · ítem {self.numero}"
+
+
+class TiempoAtencion(_VistaSoloLectura):
+    """Tiempo de atención de cada requerimiento (HU-31).
+
+    Responde «¿cuánto se demoró compras en atender esto?». La radicación es la
+    fecha de solicitud y el cierre, el paso a «Cerrado» en la bitácora de
+    estados (HU-23), llevado a la zona horaria del proyecto.
+
+    Lo que todavía no se ha cerrado aparece igual, con ``fecha_cierre`` y
+    ``dias_atencion`` vacíos y ``cerrado`` en falso: así el tablero puede
+    contar lo pendiente, y el promedio —que ignora los vacíos— no se distorsiona.
+
+    Diccionario de campos:
+
+    ==================  =========================================================
+    ``id``              ID del requerimiento.
+    ``consecutivo``     Consecutivo de radicación (``REQ-2026-0001``).
+    ``area``            Nombre del área o proyecto.
+    ``prioridad``       ``ALTA``, ``MEDIA`` o ``BAJA``.
+    ``estado``          Estado actual (``radicado``, ``revision``, ...).
+    ``fecha_solicitud`` Fecha de radicación.
+    ``anio_solicitud``  Año de radicación.
+    ``mes_solicitud``   Mes de radicación (1-12).
+    ``fecha_cierre``    Fecha en que pasó a «Cerrado». Vacía si sigue abierto.
+    ``anio_cierre``     Año de cierre. Vacío si sigue abierto.
+    ``mes_cierre``      Mes de cierre (1-12). Vacío si sigue abierto.
+    ``dias_atencion``   Días calendario entre radicación y cierre. Vacío si sigue
+                        abierto; 0 si se cerró el mismo día.
+    ``cerrado``         Verdadero si ya se cerró.
+    ==================  =========================================================
+    """
+
+    id = models.IntegerField(primary_key=True)
+    consecutivo = models.CharField(max_length=20)
+    area = models.CharField("Área o proyecto", max_length=100)
+    prioridad = models.CharField(max_length=20)
+    estado = models.CharField(max_length=20)
+    fecha_solicitud = models.DateField("Fecha de radicación")
+    anio_solicitud = models.IntegerField("Año de radicación")
+    mes_solicitud = models.IntegerField("Mes de radicación")
+    fecha_cierre = models.DateField("Fecha de cierre", null=True)
+    anio_cierre = models.IntegerField("Año de cierre", null=True)
+    mes_cierre = models.IntegerField("Mes de cierre", null=True)
+    dias_atencion = models.IntegerField("Días de atención", null=True)
+    cerrado = models.BooleanField()
+
+    class Meta(_VistaSoloLectura.Meta):
+        db_table = "analitica_tiempo_atencion"
+        verbose_name = "Tiempo de atención (analítico)"
+        verbose_name_plural = "Tiempos de atención (analíticos)"
+
+    def __str__(self):
+        return f"{self.consecutivo} · {self.dias_atencion} días"
+
+
+class TiempoAtencionMensual(_VistaSoloLectura):
+    """Tiempo de atención agregado por área y mes de cierre (HU-31).
+
+    Solo cuenta lo cerrado: un requerimiento abierto todavía no tiene tiempo de
+    atención. Se agrupa por el mes en que se **cerró**, que es cuando la
+    atención terminó y se puede medir. Para un total del año o de todas las
+    áreas no se promedian estos promedios —daría un número sesgado—: se
+    calcula sobre ``analitica_tiempo_atencion``.
+
+    Diccionario de campos:
+
+    ===========================  ================================================
+    ``id``                       Número de renglón (sin significado de negocio).
+    ``area``                     Nombre del área o proyecto.
+    ``anio``                     Año de cierre.
+    ``mes``                      Mes de cierre (1-12).
+    ``requerimientos_cerrados``  Cuántos se cerraron en ese mes y área.
+    ``promedio_dias``            Promedio de días de atención (2 decimales).
+    ``minimo_dias``              El que menos se demoró.
+    ``maximo_dias``              El que más se demoró.
+    ===========================  ================================================
+    """
+
+    id = models.IntegerField(primary_key=True)
+    area = models.CharField("Área o proyecto", max_length=100)
+    anio = models.IntegerField("Año de cierre")
+    mes = models.IntegerField("Mes de cierre")
+    requerimientos_cerrados = models.IntegerField("Requerimientos cerrados")
+    promedio_dias = models.DecimalField("Promedio de días", max_digits=10, decimal_places=2)
+    minimo_dias = models.IntegerField("Mínimo de días")
+    maximo_dias = models.IntegerField("Máximo de días")
+
+    class Meta(_VistaSoloLectura.Meta):
+        db_table = "analitica_tiempo_atencion_mensual"
+        verbose_name = "Tiempo de atención mensual (analítico)"
+        verbose_name_plural = "Tiempos de atención mensuales (analíticos)"
+
+    def __str__(self):
+        return f"{self.area} · {self.anio}-{self.mes:02d}"

@@ -20,8 +20,13 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-# Las dos vistas que crea la migración 0009 (HU-29).
-VISTAS = ("analitica_requerimientos", "analitica_items")
+# Las vistas que crean las migraciones 0009 (HU-29) y 0013 (HU-31).
+VISTAS = (
+    "analitica_requerimientos",
+    "analitica_items",
+    "analitica_tiempo_atencion",
+    "analitica_tiempo_atencion_mensual",
+)
 
 DESTINO_POR_OMISION = "analitica"
 
@@ -68,7 +73,7 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write(
-            "Abre Power BI Desktop → Obtener datos → Texto/CSV y selecciona los dos "
+            "Abre Power BI Desktop → Obtener datos → Texto/CSV y selecciona los "
             "archivos. Guía completa en la Wiki: «Tablero de Indicadores»."
         )
 

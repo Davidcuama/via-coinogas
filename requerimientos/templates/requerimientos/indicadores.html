@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block titulo %}Indicadores · VIA Compras{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 1140px;">
+
+  <div class="banda mb-4">
+    <div class="eyebrow">Área de compras · Analítica</div>
+    <h1>Indicadores de gestión</h1>
+    <p class="sub">Cuánto se demora la atención de los requerimientos y dónde. Los datos salen de las mismas vistas que usa el tablero de Power BI.</p>
+  </div>
+
+  {% comment %}
+    HU-31: tiempo de atención = días entre la radicación y el cierre. Solo
+    cuenta lo cerrado; lo abierto se informa aparte para no esconderlo.
+  {% endcomment %}
+  <section class="card mb-4" id="indicador-tiempo-atencion" aria-labelledby="titulo-tiempo-atencion">
+    <div class="card-header">
+      <h2 id="titulo-tiempo-atencion">Tiempo de atención</h2>
+      <span class="mini">De la radicación al cierre · HU-31</span>
+    </div>
+    <div class="card-body">
+      <div class="kpis mb-4">
+        <div class="kpi kpi-destacado">
+          <span class="kpi-rotulo">Promedio</span>
+          <span class="kpi-valor" id="kpi-promedio-dias">
+            {% if tiempo.promedio is not None %}{{ tiempo.promedio }} <small>día{{ tiempo.promedio|pluralize }}</small>{% else %}—{% endif %}
+          </span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Más rápido / más lento</span>
+          <span class="kpi-valor">
+            {% if tiempo.cerrados %}{{ tiempo.minimo }} / {{ tiempo.maximo }} <small>días</small>{% else %}—{% endif %}
+          </span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Cerrados</span>
+          <span class="kpi-valor" id="kpi-cerrados">{{ tiempo.cerrados }}</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Aún abiertos</span>
+          <span class="kpi-valor" id="kpi-abiertos">{{ tiempo.abiertos }}</span>
+        </div>
+      </div>
+
+      {% if tiempo.cerrados %}
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <h3 class="indicador-subtitulo">Por área <span class="mini">de la más lenta a la más rápida</span></h3>
+            <ul class="barras" id="tiempo-por-area">
+              {% for fila in tiempo.por_area %}
+                <li>
+                  <span class="barras-etiqueta">{{ fila.area }}</span>
+                  <span class="barras-pista"><span class="barras-relleno" style="width: {{ fila.ancho }}%;"></span></span>
+                  <span class="barras-valor">{{ fila.promedio }} d</span>
+                  <span class="barras-detalle">{{ fila.cerrados }} cerrado{{ fila.cerrados|pluralize }} · máx. {{ fila.maximo }} d</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="col-lg-6">
+            <h3 class="indicador-subtitulo">Por mes de cierre</h3>
+            <ul class="barras barras-secundarias" id="tiempo-por-mes">
+              {% for fila in tiempo.por_mes %}
+                <li>
+                  <span class="barras-etiqueta">{{ fila.mes }}</span>
+                  <span class="barras-pista"><span class="barras-relleno" style="width: {{ fila.ancho }}%;"></span></span>
+                  <span class="barras-valor">{{ fila.promedio }} d</span>
+                  <span class="barras-detalle">{{ fila.cerrados }} cerrado{{ fila.cerrados|pluralize }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0" id="tiempo-sin-datos">Todavía no hay requerimientos cerrados: el promedio aparece cuando se cierre el primero.</p>
+      {% endif %}
+    </div>
+  </section>
+
+</div>
+{% endblock %}

@@ -11,7 +11,7 @@ from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from . import adjuntos as reglas_adjuntos
-from . import borradores, perfiles
+from . import borradores, indicadores, perfiles
 from .forms import (
     AdjuntosForm,
     CambioEstadoForm,
@@ -130,6 +130,23 @@ class BandejaView(PerfilRequeridoMixin, ListView):
         parametros = self.request.GET.copy()
         parametros.pop("page", None)
         contexto["parametros_filtro"] = parametros.urlencode()
+        return contexto
+
+
+class IndicadoresView(PerfilRequeridoMixin, TemplateView):
+    """Indicadores de gestión del área de compras (Épica 7 - Analítica).
+
+    HU-31: tiempo promedio entre la radicación y el cierre, para ver dónde se
+    demoran los procesos. Lee las mismas vistas que Power BI (HU-29), así que
+    los números coinciden con los del tablero.
+    """
+
+    template_name = "requerimientos/indicadores.html"
+    perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        contexto["tiempo"] = indicadores.tiempo_atencion()
         return contexto
 
 

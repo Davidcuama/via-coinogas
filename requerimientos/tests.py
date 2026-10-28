@@ -2266,7 +2266,12 @@ class ExportarAnaliticaTests(TestCase):
     def test_escribe_un_csv_por_vista(self):
         self._requerimiento()
         self._exportar()
-        for vista in ("analitica_requerimientos", "analitica_items"):
+        for vista in (
+            "analitica_requerimientos",
+            "analitica_items",
+            "analitica_tiempo_atencion",
+            "analitica_tiempo_atencion_mensual",
+        ):
             with self.subTest(vista=vista):
                 self.assertTrue((self.destino / f"{vista}.csv").exists())
 
@@ -2446,6 +2451,8 @@ class CrearRolAnaliticaTests(TestCase):
             [
                 'GRANT SELECT ON "analitica_requerimientos" TO "analitica_lectura";',
                 'GRANT SELECT ON "analitica_items" TO "analitica_lectura";',
+                'GRANT SELECT ON "analitica_tiempo_atencion" TO "analitica_lectura";',
+                'GRANT SELECT ON "analitica_tiempo_atencion_mensual" TO "analitica_lectura";',
             ],
         )
         self.assertIn("creado", salida.getvalue())
@@ -3981,3 +3988,179 @@ class FichaIdsUnicosTests(VistaTestCase):
         ids = re.findall(r'\bid="([^"]+)"', html)
         repetidos = {valor for valor in ids if ids.count(valor) > 1}
         self.assertEqual(repetidos, set())
+
+
+# --- HU-31: indicador de tiempo de atención --------------------------------
+
+
+class TiempoAtencionAnaliticaTests(TransactionTestCase):
+    """HU-31: vistas SQL desnormalizadas de tiempo de atención.
+
+    Usa TransactionTestCase porque las vistas las crea una migración SQL (RunPython)
+    y deben estar disponibles en la base de datos de pruebas.
+    """
+
+    def setUp(self):
+        from .analitica import TiempoAtencion, TiempoAtencionMensual
+
+        self.TiempoAtencion = TiempoAtencion
+        self.TiempoAtencionMensual = TiempoAtencionMensual
+
+        self.area = Area.objects.create(nombre="Operaciones")
+        self.centro = CentroCosto.objects.create(codigo="CC-777", nombre="Planta Yopal")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.usuario = crear_usuario("analista.compras", perfil=perfiles.ANALISTA)
+
+    def _crear_con_fechas(self, fecha_solicitud, fecha_cierre=None):
+        req = Requerimiento.objects.create(
+            solicitante="Carlos Ruiz",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Compra de repuesto urgente para compresor.",
+            prioridad=self.prioridad,
+            fecha_requerida=fecha_solicitud + timedelta(days=15),
+        )
+        Requerimiento.objects.filter(pk=req.pk).update(fecha_solicitud=fecha_solicitud)
+        req.refresh_from_db()
+
+        if fecha_cierre:
+            # Pasa por revisión, cotización y cierre
+            req.cambiar_estado(EstadoRequerimiento.EN_REVISION, self.usuario)
+            req.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, self.usuario)
+            cambio = req.cambiar_estado(EstadoRequerimiento.CERRADO, self.usuario)
+            momento = timezone.make_aware(
+                timezone.datetime.combine(fecha_cierre, timezone.datetime.min.time())
+                + timedelta(hours=14)
+            )
+            CambioEstado.objects.filter(pk=cambio.pk).update(fecha=momento)
+
+        return req
+
+    def test_calculo_dias_atencion_en_requerimiento_cerrado(self):
+        # Radicado hace 10 días, cerrado hace 2 días -> 8 días calendario
+        f_solicitud = date.today() - timedelta(days=10)
+        f_cierre = date.today() - timedelta(days=2)
+        req = self._crear_con_fechas(f_solicitud, f_cierre)
+
+        fila = self.TiempoAtencion.objects.get(consecutivo=req.consecutivo)
+        self.assertTrue(fila.cerrado)
+        self.assertEqual(fila.fecha_solicitud, f_solicitud)
+        self.assertEqual(fila.fecha_cierre, f_cierre)
+        self.assertEqual(fila.dias_atencion, 8)
+        self.assertEqual(fila.area, "Operaciones")
+        self.assertEqual(fila.prioridad, Prioridad.ALTA)
+
+    def test_requerimiento_abierto_mantiene_dias_en_nulo_y_no_rompe_agregacion(self):
+        f_solicitud = date.today() - timedelta(days=5)
+        abierto = self._crear_con_fechas(f_solicitud, fecha_cierre=None)
+
+        fila = self.TiempoAtencion.objects.get(consecutivo=abierto.consecutivo)
+        self.assertFalse(fila.cerrado)
+        self.assertIsNone(fila.fecha_cierre)
+        self.assertIsNone(fila.dias_atencion)
+
+        # La vista mensual solo incluye cerrados
+        self.assertFalse(self.TiempoAtencionMensual.objects.filter(area=self.area.nombre).exists())
+
+    def test_vista_mensual_calcula_promedios_por_area_y_mes(self):
+        # Dos requerimientos cerrados en el mismo mes: 4 días y 8 días -> promedio 6.0
+        base = date.today().replace(day=1)
+        if base.month == 1:
+            mes_cerrado = base.replace(year=base.year - 1, month=12, day=15)
+        else:
+            mes_cerrado = base.replace(month=base.month - 1, day=15)
+
+        self._crear_con_fechas(mes_cerrado - timedelta(days=4), mes_cerrado)
+        self._crear_con_fechas(mes_cerrado - timedelta(days=8), mes_cerrado)
+
+        resumen = self.TiempoAtencionMensual.objects.get(
+            area=self.area.nombre, anio=mes_cerrado.year, mes=mes_cerrado.month
+        )
+        self.assertEqual(resumen.requerimientos_cerrados, 2)
+        self.assertEqual(Decimal(resumen.promedio_dias), Decimal("6.00"))
+        self.assertEqual(resumen.minimo_dias, 4)
+        self.assertEqual(resumen.maximo_dias, 8)
+
+    def test_vistas_tiempo_atencion_son_de_solo_lectura(self):
+        req = self._crear_con_fechas(date.today() - timedelta(days=3), date.today())
+        fila = self.TiempoAtencion.objects.get(consecutivo=req.consecutivo)
+        with self.assertRaises(NotImplementedError):
+            fila.save()
+        with self.assertRaises(NotImplementedError):
+            fila.delete()
+
+
+class IndicadoresServicioTests(TransactionTestCase):
+    """Pruebas de la lógica de agregación del servicio `indicadores.py`."""
+
+    def test_sin_datos_devuelve_estructura_segura(self):
+        from . import indicadores
+
+        datos = indicadores.tiempo_atencion()
+        self.assertIsNone(datos["promedio"])
+        self.assertEqual(datos["cerrados"], 0)
+        self.assertEqual(datos["abiertos"], 0)
+        self.assertEqual(datos["por_area"], [])
+        self.assertEqual(datos["por_mes"], [])
+
+    def test_con_datos_calcula_promedios_y_anchos_de_barra(self):
+        from . import indicadores
+
+        area = Area.objects.create(nombre="Logística")
+        centro = CentroCosto.objects.create(codigo="CC-333", nombre="Bodega")
+        prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        usuario = crear_usuario("analista.demo", perfil=perfiles.ANALISTA)
+
+        f_sol = date.today() - timedelta(days=6)
+        f_cie = date.today() - timedelta(days=1)
+        req = Requerimiento.objects.create(
+            solicitante="Prueba",
+            area=area,
+            centro_costo=centro,
+            justificacion="Justificación prueba",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+        Requerimiento.objects.filter(pk=req.pk).update(fecha_solicitud=f_sol)
+        req.refresh_from_db()
+        req.cambiar_estado(EstadoRequerimiento.EN_REVISION, usuario)
+        req.cambiar_estado(EstadoRequerimiento.EN_COTIZACION, usuario)
+        cambio = req.cambiar_estado(EstadoRequerimiento.CERRADO, usuario)
+        momento = timezone.make_aware(
+            timezone.datetime.combine(f_cie, timezone.datetime.min.time()) + timedelta(hours=14)
+        )
+        CambioEstado.objects.filter(pk=cambio.pk).update(fecha=momento)
+
+        datos = indicadores.tiempo_atencion()
+        self.assertEqual(datos["cerrados"], 1)
+        self.assertEqual(datos["promedio"], 5.0)
+        self.assertEqual(len(datos["por_area"]), 1)
+        self.assertEqual(datos["por_area"][0]["area"], "Logística")
+        self.assertEqual(datos["por_area"][0]["ancho"], 100)
+        self.assertEqual(len(datos["por_mes"]), 1)
+        self.assertEqual(datos["por_mes"][0]["ancho"], 100)
+
+
+class IndicadoresVistaWebTests(VistaTestCase):
+    """Pruebas de la pantalla web de indicadores (HU-31)."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def test_analista_accede_a_pantalla_indicadores(self):
+        respuesta = self.client.get(reverse("requerimientos:indicadores"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Indicadores de gestión")
+        self.assertContains(respuesta, "Tiempo de atención")
+        self.assertContains(respuesta, 'id="indicador-tiempo-atencion"')
+
+    def test_solicitante_no_tiene_acceso_a_indicadores(self):
+        solicitante = crear_usuario("solicitante.test", perfil=perfiles.SOLICITANTE)
+        self.client.force_login(solicitante)
+        respuesta = self.client.get(reverse("requerimientos:indicadores"))
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_anonimo_es_redirigido_al_login(self):
+        self.client.logout()
+        url = reverse("requerimientos:indicadores")
+        respuesta = self.client.get(url)
+        self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={url}")
