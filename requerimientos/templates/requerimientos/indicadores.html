@@ -79,5 +79,71 @@
     </div>
   </section>
 
+  {% comment %}
+    HU-32: tasa de devolución = requerimientos devueltos / total radicados.
+    Permite evaluar si la digitalización redujo los errores y reprocesos.
+  {% endcomment %}
+  <section class="card mb-4" id="indicador-tasa-devolucion" aria-labelledby="titulo-tasa-devolucion">
+    <div class="card-header">
+      <h2 id="titulo-tasa-devolucion">Tasa de devolución</h2>
+      <span class="mini">Por información incompleta o correcciones · HU-32</span>
+    </div>
+    <div class="card-body">
+      <div class="kpis mb-4">
+        <div class="kpi kpi-destacado kpi-alerta">
+          <span class="kpi-rotulo">Tasa global</span>
+          <span class="kpi-valor" id="kpi-tasa-global">
+            {% if devoluciones.tasa is not None %}{{ devoluciones.tasa }} <small>%</small>{% else %}—{% endif %}
+          </span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Devueltos al menos una vez</span>
+          <span class="kpi-valor" id="kpi-devueltos">{{ devoluciones.devueltos }}</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Sin devolución (flujo limpio)</span>
+          <span class="kpi-valor" id="kpi-sin-devolucion">{{ devoluciones.sin_devolucion }}</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-rotulo">Total radicados</span>
+          <span class="kpi-valor" id="kpi-total-radicados">{{ devoluciones.total }}</span>
+        </div>
+      </div>
+
+      {% if devoluciones.total %}
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <h3 class="indicador-subtitulo">Por área <span class="mini">mayor tasa de devolución primero</span></h3>
+            <ul class="barras barras-alerta" id="devoluciones-por-area">
+              {% for fila in devoluciones.por_area %}
+                <li>
+                  <span class="barras-etiqueta">{{ fila.area }}</span>
+                  <span class="barras-pista"><span class="barras-relleno" style="width: {{ fila.ancho }}%;"></span></span>
+                  <span class="barras-valor">{{ fila.tasa }}%</span>
+                  <span class="barras-detalle">{{ fila.devueltos }} de {{ fila.total }} requerimiento{{ fila.total|pluralize }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="col-lg-6">
+            <h3 class="indicador-subtitulo">Por mes de radicación</h3>
+            <ul class="barras barras-alerta" id="devoluciones-por-mes">
+              {% for fila in devoluciones.por_mes %}
+                <li>
+                  <span class="barras-etiqueta">{{ fila.mes }}</span>
+                  <span class="barras-pista"><span class="barras-relleno" style="width: {{ fila.ancho }}%;"></span></span>
+                  <span class="barras-valor">{{ fila.tasa }}%</span>
+                  <span class="barras-detalle">{{ fila.devueltos }} devuelto{{ fila.devueltos|pluralize }} de {{ fila.total }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0" id="devoluciones-sin-datos">Todavía no hay requerimientos radicados para calcular la tasa de devolución.</p>
+      {% endif %}
+    </div>
+  </section>
+
 </div>
 {% endblock %}

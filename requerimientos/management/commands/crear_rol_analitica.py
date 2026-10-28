@@ -28,6 +28,9 @@ VISTAS = (
     # HU-31: indicador de tiempo de atención.
     "analitica_tiempo_atencion",
     "analitica_tiempo_atencion_mensual",
+    # HU-32: indicador de tasa de devolución.
+    "analitica_devoluciones",
+    "analitica_tasa_devolucion_mensual",
 )
 
 

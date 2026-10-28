@@ -95,3 +95,97 @@ def tiempo_atencion():
         "por_area": _con_ancho(por_area, "promedio"),
         "por_mes": _con_ancho(por_mes, "promedio"),
     }
+
+
+def tasa_devolucion():
+    """Indicador de tasa de requerimientos devueltos (HU-32).
+
+    Mide qué porcentaje de los requerimientos radicados han sido devueltos al
+    menos una vez por información incompleta o errores:
+    ``(requerimientos_devueltos / total_requerimientos) * 100``.
+
+    Devuelve la tasa general, el desglose por área (de mayor a menor tasa para
+    focalizar acciones de capacitación) y la evolución cronológica por mes de
+    radicación. Si no hay requerimientos radicados, no produce división por cero.
+    """
+    from django.db.models import Case, IntegerField, Sum, When
+
+    from .analitica import DevolucionAnalitica
+
+    todos = DevolucionAnalitica.objects.all()
+    total_general = todos.count()
+    if total_general == 0:
+        return {
+            "tasa": None,
+            "total": 0,
+            "devueltos": 0,
+            "sin_devolucion": 0,
+            "por_area": [],
+            "por_mes": [],
+        }
+
+    agregados = todos.aggregate(
+        devueltos=Sum(
+            Case(When(fue_devuelto=True, then=1), default=0, output_field=IntegerField())
+        ),
+    )
+    devueltos_general = agregados["devueltos"] or 0
+    tasa_general = round((devueltos_general * 100.0) / total_general, 1)
+
+    por_area = []
+    filas_area = (
+        todos.values("area")
+        .annotate(
+            total=Count("id"),
+            devueltos=Sum(
+                Case(When(fue_devuelto=True, then=1), default=0, output_field=IntegerField())
+            ),
+        )
+        .order_by("area")
+    )
+    for fila in filas_area:
+        tot = fila["total"]
+        dev = fila["devueltos"] or 0
+        tasa = round((dev * 100.0) / tot, 1) if tot else 0.0
+        por_area.append(
+            {
+                "area": fila["area"],
+                "total": tot,
+                "devueltos": dev,
+                "tasa": tasa,
+            }
+        )
+    por_area.sort(key=lambda x: (-x["tasa"], x["area"]))
+
+    por_mes = []
+    filas_mes = (
+        todos.values("anio_solicitud", "mes_solicitud")
+        .annotate(
+            total=Count("id"),
+            devueltos=Sum(
+                Case(When(fue_devuelto=True, then=1), default=0, output_field=IntegerField())
+            ),
+        )
+        .order_by("anio_solicitud", "mes_solicitud")
+    )
+    for fila in filas_mes:
+        tot = fila["total"]
+        dev = fila["devueltos"] or 0
+        tasa = round((dev * 100.0) / tot, 1) if tot else 0.0
+        por_mes.append(
+            {
+                "mes": etiqueta_mes(fila["anio_solicitud"], fila["mes_solicitud"]),
+                "total": tot,
+                "devueltos": dev,
+                "tasa": tasa,
+            }
+        )
+
+    return {
+        "tasa": tasa_general,
+        "total": total_general,
+        "devueltos": devueltos_general,
+        "sin_devolucion": total_general - devueltos_general,
+        "por_area": _con_ancho(por_area, "tasa"),
+        "por_mes": _con_ancho(por_mes, "tasa"),
+    }
