@@ -29,8 +29,8 @@
   --tinta-media: #4a6577;    /* texto secundario */
   --tinta-suave: #7891a3;    /* placeholders */
 
-  --display: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
-  --texto: "Public Sans", -apple-system, "Segoe UI", sans-serif;
+  --display: "Barlow Semi Condensed", "Inter", "Arial Narrow", sans-serif;
+  --texto: "Inter", "Public Sans", -apple-system, "Segoe UI", sans-serif;
   --dato: "IBM Plex Mono", "SF Mono", Consolas, monospace;
 
   --r: 5px;
@@ -1105,152 +1105,291 @@ h1, h2, h3, h4 {
 }
 
 /* ============================================================
-   Indicadores de gestión (Épica 7 - Analítica: HU-31)
+   Rediseño Panel de Administración SaaS y Perspectivas de Vista
    ============================================================ */
 
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
+/* Navegación activa */
+.tope-nav a.tope-nav-activo {
+  color: var(--azul) !important;
+  background: var(--azul-suave);
+  font-weight: 700;
 }
 
-.kpi {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
+/* Botón de Perfil & Dropdown de Perspectivas */
+.perfil-boton {
+  cursor: pointer;
+  border-radius: var(--r);
+  transition: all 0.15s ease-in-out;
+}
+
+.perfil-boton:hover,
+.perfil-boton:focus {
+  background: rgba(0, 120, 190, 0.08) !important;
+}
+
+.perfil-menu-desplegable .dropdown-item {
+  transition: all 0.15s ease;
+}
+
+.perfil-menu-desplegable .dropdown-item:hover {
+  background-color: var(--azul-suave);
+  color: var(--azul-profundo);
+}
+
+.perspective-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  background: var(--azul-suave);
+  color: var(--azul-oscuro);
+  flex: none;
+}
+
+.active-perspective {
+  background: #f0f7fb !important;
+  border-left: 3px solid var(--verde) !important;
+}
+
+.badge-activa {
+  background: var(--verde-suave);
+  color: var(--verde-oscuro);
+  border: 1px solid #b7e2c4;
+  font-family: var(--dato);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* KPI Cards de Administración */
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.admin-kpi-card {
+  background: var(--papel);
   border: 1px solid var(--linea);
   border-radius: var(--r-g);
-  background: var(--papel);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.kpi:hover {
-  transform: translateY(-2px);
+  padding: 16px 18px;
   box-shadow: var(--sombra);
-}
-
-.kpi-destacado {
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--azul-profundo), var(--azul));
-  color: #fff;
-}
-
-.kpi-rotulo {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--tinta-media);
-}
-
-.kpi-destacado .kpi-rotulo {
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.kpi-valor {
-  font-family: var(--display);
-  font-size: 30px;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.kpi-valor small {
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.indicador-subtitulo {
-  font-size: 17px;
-  margin-bottom: 12px;
-}
-
-.indicador-subtitulo .mini {
-  font-family: var(--texto);
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--tinta-suave);
-  margin-left: 6px;
-}
-
-.barras {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.barras li {
-  display: grid;
-  grid-template-columns: minmax(90px, 30%) 1fr auto;
-  grid-template-areas:
-    "etiqueta pista valor"
-    ". detalle detalle";
+  display: flex;
   align-items: center;
-  column-gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px dashed var(--linea);
-}
-
-.barras li:last-child {
-  border-bottom: 0;
-}
-
-.barras-etiqueta {
-  grid-area: etiqueta;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.barras-pista {
-  grid-area: pista;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--niebla);
+  gap: 14px;
+  position: relative;
   overflow: hidden;
 }
 
-.barras-relleno {
-  display: block;
-  height: 100%;
-  min-width: 4px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--cian), var(--azul));
-  animation: barras-crece 0.6s ease-out both;
-  transform-origin: left center;
+.admin-kpi-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--cian), var(--verde));
+  opacity: 0.8;
 }
 
-.barras-secundarias .barras-relleno {
-  background: linear-gradient(90deg, #6cc48a, var(--verde));
+.admin-kpi-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--niebla);
 }
 
-.barras-alerta .barras-relleno {
-  background: linear-gradient(90deg, #f7a379, var(--alerta));
+.admin-kpi-info {
+  display: flex;
+  flex-direction: column;
 }
 
-.kpi-alerta {
-  background: linear-gradient(135deg, #741d13, var(--alerta));
-}
-
-.barras-valor {
-  grid-area: valor;
-  font-family: var(--dato);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.barras-detalle {
-  grid-area: detalle;
-  font-size: 12px;
+.admin-kpi-label {
+  font-size: 11.5px;
   color: var(--tinta-suave);
+  text-transform: uppercase;
+  font-family: var(--dato);
+  letter-spacing: 0.07em;
+  font-weight: 500;
 }
 
-@keyframes barras-crece {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+.admin-kpi-val {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--dato);
+  color: var(--azul-profundo);
+  line-height: 1.1;
+  margin-top: 2px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .barras-relleno { animation: none; }
-  .kpi { transition: none; }
+/* Tabla SaaS de Administración */
+.tabla-admin-saas {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
 }
+
+.tabla-admin-saas th {
+  font-family: var(--dato);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--azul-oscuro);
+  background: linear-gradient(180deg, #f7fafc, #edf4f9);
+  border-bottom: 1px solid var(--linea);
+  padding: 12px 16px;
+  white-space: nowrap;
+}
+
+.tabla-admin-saas td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--linea);
+  vertical-align: middle;
+  background: #ffffff;
+  transition: background-color 0.12s ease-in-out;
+}
+
+.tabla-admin-saas tr:hover td {
+  background: #f8fbfe;
+}
+
+.tabla-admin-saas tr:last-child td {
+  border-bottom: none;
+}
+
+/* Entidad en tabla con ícono */
+.entidad-bloque {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.entidad-icono {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--azul-suave);
+  flex: none;
+  border: 1px solid var(--linea);
+}
+
+.entidad-titulo {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--azul-profundo);
+  text-decoration: none;
+  display: block;
+}
+
+.entidad-titulo:hover {
+  color: var(--azul);
+  text-decoration: underline;
+}
+
+.entidad-desc {
+  font-size: 11.5px;
+  color: var(--tinta-suave);
+  margin-top: 1px;
+}
+
+/* Estados Globales de Administración */
+.badge-estado-saas {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badge-estado-saas::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge-estado-activo {
+  background: var(--verde-suave);
+  color: var(--verde-oscuro);
+  border: 1px solid #b7e2c4;
+}
+
+.badge-estado-configuracion {
+  background: var(--azul-suave);
+  color: var(--azul-oscuro);
+  border: 1px solid #b4c9d8;
+}
+
+.badge-estado-inactivo {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+/* Botones de acción rápida con íconos */
+.btn-accion-icono {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--linea-fuerte);
+  background: #ffffff;
+  color: var(--tinta-media);
+  text-decoration: none;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-accion-icono:hover {
+  background: var(--azul-suave);
+  color: var(--azul);
+  border-color: var(--azul);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 120, 190, 0.15);
+}
+
+.btn-accion-icono.btn-accion-add:hover {
+  background: var(--verde-suave);
+  color: var(--verde-oscuro);
+  border-color: var(--verde);
+}
+
+/* Botón flotante / superior "Añadir Nueva Entidad Global" */
+.btn-anadir-global {
+  background: linear-gradient(180deg, #00a83e, var(--verde) 55%, var(--verde-oscuro));
+  border: 1px solid var(--verde-oscuro);
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 152, 56, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.btn-anadir-global:hover {
+  background: linear-gradient(180deg, #00b845, #00a03b 55%, #008430);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 12px rgba(0, 152, 56, 0.35);
+  transform: translateY(-1px);
+}
+
 

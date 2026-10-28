@@ -16,6 +16,7 @@ import smtplib
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ PLANTILLA_HTML_DEVOLUCION = "requerimientos/email/devolucion.html"
 ASUNTO_REENVIO = "[VIA Compras] {consecutivo} corregido y reenviado"
 PLANTILLA_TEXTO_REENVIO = "requerimientos/email/reenvio.txt"
 PLANTILLA_HTML_REENVIO = "requerimientos/email/reenvio.html"
+
+# HU-36: alerta de seguridad al iniciar sesión.
+ASUNTO_ALERTA_LOGIN = "[VIA Compras] Alerta de seguridad: inicio de sesión en tu cuenta"
+PLANTILLA_TEXTO_ALERTA_LOGIN = "requerimientos/email/alerta_login.txt"
+PLANTILLA_HTML_ALERTA_LOGIN = "requerimientos/email/alerta_login.html"
 
 
 def destinatarios():
@@ -210,3 +216,50 @@ def notificar_reenvio(requerimiento, cambio, enlace_ficha):
         correos,
         "HU-24",
     )
+
+
+def notificar_alerta_login(usuario, request=None):
+    """Avisa al usuario, por correo, que se inició sesión en su cuenta (HU-36).
+
+    El aviso va **a la cuenta de quien entró** —nunca a un tercero—. Si la cuenta
+    no tiene correo, se deja constancia en el log. La alerta NUNCA impide el
+    ingreso: si el correo falla, se registra y la sesión continúa.
+    """
+    correo = (getattr(usuario, "email", "") or "").strip()
+    if not correo:
+        logger.warning(
+            "HU-36: no se envió la alerta de inicio de sesión de «%s», la cuenta "
+            "no tiene correo registrado.",
+            usuario.get_username(),
+        )
+        return False
+
+    contexto = {
+        "usuario": usuario,
+        "nombre": usuario.get_full_name() or usuario.get_username(),
+        "ip": _ip_de(request),
+        "fecha": timezone.localtime(),
+    }
+    mensaje = EmailMultiAlternatives(
+        subject=ASUNTO_ALERTA_LOGIN,
+        body=render_to_string(PLANTILLA_TEXTO_ALERTA_LOGIN, contexto),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[correo],
+    )
+    mensaje.attach_alternative(render_to_string(PLANTILLA_HTML_ALERTA_LOGIN, contexto), "text/html")
+    try:
+        mensaje.send()
+    except (OSError, smtplib.SMTPException):
+        logger.exception("HU-36: no se pudo enviar la alerta de inicio de sesión a %s.", correo)
+        return False
+    return True
+
+
+def _ip_de(request):
+    """IP del cliente a partir del request, o ``None`` si no se puede determinar."""
+    if request is None:
+        return None
+    reenviada = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if reenviada:
+        return reenviada.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
