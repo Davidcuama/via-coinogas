@@ -1,0 +1,127 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} · {% endif %}{{ title }} · Administración Coinogas{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="{% static 'requerimientos/via-compras.css' %}" rel="stylesheet">
+<style>
+  :root {
+    --primary: #0b3a5d;
+    --secondary: #0078be;
+    --accent: #009838;
+    --primary-fg: #ffffff;
+    --body-fg: #0f2230;
+    --body-bg: #edf3f7;
+    --header-bg: #0b3a5d;
+    --breadcrumbs-bg: #ffffff;
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    background: #edf3f7 !important;
+    color: #0f2230 !important;
+  }
+  #header {
+    background: linear-gradient(180deg, #ffffff, #fafdff) !important;
+    color: #0f2230 !important;
+    border-bottom: 1px solid #d5e2ec !important;
+    padding: 12px 24px !important;
+    box-shadow: 0 1px 3px rgba(11, 58, 93, 0.06) !important;
+  }
+  #branding h1 {
+    font-family: 'Barlow Semi Condensed', sans-serif !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    color: #0b3a5d !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin: 0 !important;
+  }
+  #branding h1 a {
+    color: #0b3a5d !important;
+    text-decoration: none !important;
+  }
+  #user-tools {
+    color: #4a6577 !important;
+    font-size: 12.5px !important;
+  }
+  #user-tools a {
+    color: #0078be !important;
+    border-bottom: none !important;
+    font-weight: 600 !important;
+  }
+  div.breadcrumbs {
+    background: #ffffff !important;
+    border-bottom: 1px solid #d5e2ec !important;
+    color: #7891a3 !important;
+    font-size: 12px !important;
+    padding: 10px 24px !important;
+  }
+  div.breadcrumbs a {
+    color: #0078be !important;
+    font-weight: 600 !important;
+  }
+  .module h2, .module caption {
+    background: linear-gradient(180deg, #f7fafc, #edf4f9) !important;
+    color: #0b3a5d !important;
+    font-family: 'Barlow Semi Condensed', sans-serif !important;
+    font-size: 14px !important;
+    letter-spacing: 0.05em !important;
+  }
+  .button, input[type=submit], input[type=button], .submit-row input, a.button {
+    background: linear-gradient(180deg, #00a83e, #009838 55%, #007a2c) !important;
+    border-color: #007a2c !important;
+    border-radius: 5px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 6px rgba(0, 152, 56, 0.2) !important;
+    color: #fff !important;
+  }
+  .button:hover, input[type=submit]:hover, input[type=button]:hover {
+    background: linear-gradient(180deg, #00b845, #00a03b 55%, #008430) !important;
+  }
+  #changelist {
+    background: #ffffff !important;
+    border: 1px solid #d5e2ec !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(11, 58, 93, 0.05), 0 6px 18px rgba(11, 58, 93, 0.07) !important;
+    overflow: hidden !important;
+  }
+  #changelist table {
+    border-collapse: separate !important;
+  }
+  #changelist table thead th {
+    background: linear-gradient(180deg, #f7fafc, #edf4f9) !important;
+    color: #005a90 !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+  }
+</style>
+{% endblock %}
+
+{% block branding %}
+<h1 id="site-name">
+  <a href="{% url 'admin:index' %}">
+    <img src="{% static 'requerimientos/logo-coinogas.png' %}" alt="Coinogas" style="height: 28px; width: auto;">
+    <span style="font-weight: 700; color: #0b3a5d; font-size: 16px;">VIA Compras · Administración</span>
+  </a>
+</h1>
+{% endblock %}
+
+{% block nav-global %}
+<div style="margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 13px;">
+  <a href="{% url 'requerimientos:bandeja' %}" style="color: #0078be; font-weight: 600; text-decoration: none;">
+    &larr; Volver a Bandeja
+  </a>
+  <span style="color: #d5e2ec;">|</span>
+  <a href="{% url 'admin:index' %}" style="color: #0078be; font-weight: 600; text-decoration: none;">
+    Panel Global
+  </a>
+</div>
+{% endblock %}
