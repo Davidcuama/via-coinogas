@@ -4312,3 +4312,126 @@ class IndicadoresDevolucionServicioTests(TransactionTestCase):
         self.assertEqual(datos["por_area"][1]["area"], "Área B")
         self.assertEqual(datos["por_area"][1]["tasa"], 0.0)
         self.assertEqual(datos["por_area"][1]["ancho"], 0)
+
+
+class AlertaInicioSesionTests(TestCase):
+    """Pruebas de la alerta de inicio de sesión por correo (HU-36)."""
+
+    def setUp(self):
+        self.user_model = get_user_model()
+
+    def _crear_usuario_con_email(
+        self, username="usuario.prueba", email="usuario@coinogas.com", password=None
+    ):
+        if password is None:
+            password = "Password123!"
+        return self.user_model.objects.create_user(
+            username=username, email=email, password=password
+        )
+
+    def test_login_con_email_envia_alerta_de_seguridad(self):
+        """Happy path: al iniciar sesión con email, se envía correo de alerta al usuario."""
+        self._crear_usuario_con_email(
+            "usuario.alerta", "usuario.alerta@coinogas.com", "ClaveSecreta123!"
+        )
+        exito = self.client.login(username="usuario.alerta", password="ClaveSecreta123!")
+        self.assertTrue(exito)
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ["usuario.alerta@coinogas.com"])
+        self.assertIn("seguridad", correo.subject.lower())
+        self.assertIn("inicio de sesión", correo.body.lower())
+
+    def test_login_sin_email_permite_acceso_sin_enviar_correo(self):
+        """Flujo alterno 1: una cuenta sin email entra correctamente y no genera correo."""
+        self.user_model.objects.create_user(
+            username="sin.correo", password="Password123!", email=""
+        )
+        exito = self.client.login(username="sin.correo", password="Password123!")
+        self.assertTrue(exito)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_alerta_va_solo_a_cuenta_que_inicia_sesion(self):
+        """Flujo alterno 2: la alerta va únicamente a quien inicia sesión, no a otros."""
+        self._crear_usuario_con_email("cuenta.uno", "uno@coinogas.com", "Pass123!")
+        self._crear_usuario_con_email("cuenta.dos", "dos@coinogas.com", "Pass456!")
+        mail.outbox.clear()
+
+        exito = self.client.login(username="cuenta.uno", password="Pass123!")
+        self.assertTrue(exito)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["uno@coinogas.com"])
+        self.assertNotIn("dos@coinogas.com", mail.outbox[0].to)
+
+    @mock.patch("requerimientos.notificaciones.EmailMultiAlternatives.send")
+    def test_fallo_de_correo_no_bloquea_el_ingreso(self, mock_send):
+        """Flujo alterno 3: si SMTP falla, el login no se bloquea y sigue devolviendo True."""
+        mock_send.side_effect = smtplib.SMTPException("Servidor SMTP no disponible")
+        self._crear_usuario_con_email("cuenta.smtp", "smtp@coinogas.com", "Clave123!")
+        exito = self.client.login(username="cuenta.smtp", password="Clave123!")
+        self.assertTrue(exito)
+
+
+class CrearUsuariosClienteCommandTests(TestCase):
+    """Pruebas del comando crear_usuarios_cliente."""
+
+    def setUp(self):
+        self.user_model = get_user_model()
+
+    def test_comando_crea_las_tres_cuentas_con_perfiles_y_emails(self):
+        """Happy path: crear_usuarios_cliente crea las 3 cuentas requeridas con perfiles."""
+        salida = StringIO()
+        call_command("crear_usuarios_cliente", stdout=salida)
+
+        # 1. Gerardo Cuadros (ADMINISTRADOR, is_staff=True)
+        gerardo = self.user_model.objects.get(username="gerardo.cuadros")
+        self.assertEqual(gerardo.email, "gerardo.cuadros@coinogas.com")
+        self.assertEqual(gerardo.first_name, "Gerardo")
+        self.assertEqual(gerardo.last_name, "Cuadros")
+        self.assertTrue(gerardo.is_staff)
+        self.assertTrue(perfiles.es(gerardo, perfiles.ADMINISTRADOR))
+
+        # 2. Sergio Quintero (ANALISTA)
+        sergio = self.user_model.objects.get(username="sergio.quintero")
+        self.assertEqual(sergio.email, "sergio.quintero@coinogas.com")
+        self.assertEqual(sergio.first_name, "Sergio")
+        self.assertEqual(sergio.last_name, "Quintero")
+        self.assertFalse(sergio.is_staff)
+        self.assertTrue(perfiles.es(sergio, perfiles.ANALISTA))
+
+        # 3. Alejandra Silva (SOLICITANTE)
+        alejandra = self.user_model.objects.get(username="alejandra.silva")
+        self.assertEqual(alejandra.email, "alejandra.silva@coinogas.com")
+        self.assertEqual(alejandra.first_name, "Alejandra")
+        self.assertEqual(alejandra.last_name, "Silva")
+        self.assertFalse(alejandra.is_staff)
+        self.assertTrue(perfiles.es(alejandra, perfiles.SOLICITANTE))
+
+        texto = salida.getvalue()
+        self.assertIn("gerardo.cuadros", texto)
+        self.assertIn("sergio.quintero", texto)
+        self.assertIn("alejandra.silva", texto)
+
+    def test_comando_es_idempotente_y_no_cambia_password_existente(self):
+        """Flujo alterno: ejecutar dos veces no duplica y no cambia la contraseña."""
+        salida1 = StringIO()
+        call_command("crear_usuarios_cliente", stdout=salida1)
+        total_inicial = self.user_model.objects.count()
+
+        # Cambiamos intencionalmente la clave de una cuenta a una conocida
+        gerardo = self.user_model.objects.get(username="gerardo.cuadros")
+        gerardo.set_password("ClavePropiaSegura999!")
+        gerardo.save()
+
+        salida2 = StringIO()
+        call_command("crear_usuarios_cliente", stdout=salida2)
+
+        # No se deben duplicar cuentas
+        self.assertEqual(self.user_model.objects.count(), total_inicial)
+
+        # La clave previa sigue funcionando (no fue sobreescrita)
+        gerardo.refresh_from_db()
+        self.assertTrue(gerardo.check_password("ClavePropiaSegura999!"))
+
+        texto2 = salida2.getvalue()
+        self.assertIn("ya existía, clave sin cambios", texto2)
