@@ -147,6 +147,7 @@ class IndicadoresView(PerfilRequeridoMixin, TemplateView):
     def get_context_data(self, **kwargs):
         contexto = super().get_context_data(**kwargs)
         contexto["tiempo"] = indicadores.tiempo_atencion()
+        contexto["devoluciones"] = indicadores.tasa_devolucion()
         return contexto
 
 

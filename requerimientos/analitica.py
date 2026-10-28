@@ -18,6 +18,10 @@ Nombres de vista:
     requerimiento con los días entre su radicación y su cierre.
   - ``analitica_tiempo_atencion_mensual`` (HU-31): promedio, mínimo y máximo
     de días de atención por área y mes de cierre.
+  - ``analitica_devoluciones`` (HU-32, migración ``0014``): un renglón por
+    requerimiento indicando si tuvo devoluciones y cuántas.
+  - ``analitica_tasa_devolucion_mensual`` (HU-32): tasa porcentual de
+    devolución por área y mes de radicación.
 """
 
 from django.db import models
@@ -181,3 +185,83 @@ class TiempoAtencionMensual(_VistaSoloLectura):
 
     def __str__(self):
         return f"{self.area} · {self.anio}-{self.mes:02d}"
+
+
+class DevolucionAnalitica(_VistaSoloLectura):
+    """Información de devoluciones por requerimiento (HU-32).
+
+    Permite responder «¿cuántas solicitudes fueron devueltas por información
+    incompleta o errónea?». Analiza la bitácora de estados (``CambioEstado``)
+    buscando transiciones hacia ``devuelto``.
+
+    Diccionario de campos:
+
+    ==========================  ================================================
+    ``id``                      ID del requerimiento.
+    ``consecutivo``             Consecutivo de radicación (``REQ-2026-0001``).
+    ``area``                    Nombre del área o proyecto.
+    ``prioridad``               ``ALTA``, ``MEDIA`` o ``BAJA``.
+    ``estado``                  Estado actual del requerimiento.
+    ``fecha_solicitud``         Fecha de radicación.
+    ``anio_solicitud``          Año de radicación.
+    ``mes_solicitud``           Mes de radicación (1-12).
+    ``conteo_devoluciones``     Número de veces que el requerimiento fue devuelto.
+    ``fue_devuelto``            Verdadero si fue devuelto al menos una vez.
+    ==========================  ================================================
+    """
+
+    id = models.IntegerField(primary_key=True)
+    consecutivo = models.CharField(max_length=20)
+    area = models.CharField("Área o proyecto", max_length=100)
+    prioridad = models.CharField(max_length=20)
+    estado = models.CharField(max_length=20)
+    fecha_solicitud = models.DateField("Fecha de radicación")
+    anio_solicitud = models.IntegerField("Año de radicación")
+    mes_solicitud = models.IntegerField("Mes de radicación")
+    conteo_devoluciones = models.IntegerField("Conteo de devoluciones")
+    fue_devuelto = models.BooleanField("¿Fue devuelto?")
+
+    class Meta(_VistaSoloLectura.Meta):
+        db_table = "analitica_devoluciones"
+        verbose_name = "Devolución (analítica)"
+        verbose_name_plural = "Devoluciones (analíticas)"
+
+    def __str__(self):
+        return f"{self.consecutivo} · {'Devuelto' if self.fue_devuelto else 'Sin devoluciones'}"
+
+
+class TasaDevolucionMensual(_VistaSoloLectura):
+    """Tasa de devolución agregada por área y mes de solicitud (HU-32).
+
+    Calcula el porcentaje de requerimientos devueltos respecto al total
+    radicado en cada periodo y área:
+    ``(requerimientos_devueltos / total_requerimientos) * 100``.
+
+    Diccionario de campos:
+
+    ===========================  ================================================
+    ``id``                       Número de renglón (sin significado de negocio).
+    ``area``                     Nombre del área o proyecto.
+    ``anio``                     Año de radicación.
+    ``mes``                      Mes de radicación (1-12).
+    ``total_requerimientos``     Total de requerimientos radicados en el periodo.
+    ``requerimientos_devueltos`` Cuántos de ellos fueron devueltos al menos una vez.
+    ``tasa_devolucion``          Porcentaje de devolución (0.00% a 100.00%).
+    ===========================  ================================================
+    """
+
+    id = models.IntegerField(primary_key=True)
+    area = models.CharField("Área o proyecto", max_length=100)
+    anio = models.IntegerField("Año de radicación")
+    mes = models.IntegerField("Mes de radicación")
+    total_requerimientos = models.IntegerField("Total de requerimientos")
+    requerimientos_devueltos = models.IntegerField("Requerimientos devueltos")
+    tasa_devolucion = models.DecimalField("Tasa de devolución (%)", max_digits=5, decimal_places=2)
+
+    class Meta(_VistaSoloLectura.Meta):
+        db_table = "analitica_tasa_devolucion_mensual"
+        verbose_name = "Tasa de devolución mensual (analítica)"
+        verbose_name_plural = "Tasas de devolución mensuales (analíticas)"
+
+    def __str__(self):
+        return f"{self.area} · {self.anio}-{self.mes:02d}: {self.tasa_devolucion}%"

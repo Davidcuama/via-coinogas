@@ -1223,6 +1223,14 @@ h1, h2, h3, h4 {
   background: linear-gradient(90deg, #6cc48a, var(--verde));
 }
 
+.barras-alerta .barras-relleno {
+  background: linear-gradient(90deg, #f7a379, var(--alerta));
+}
+
+.kpi-alerta {
+  background: linear-gradient(135deg, #741d13, var(--alerta));
+}
+
 .barras-valor {
   grid-area: valor;
   font-family: var(--dato);

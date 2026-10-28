@@ -20,12 +20,14 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-# Las vistas que crean las migraciones 0009 (HU-29) y 0013 (HU-31).
+# Las vistas que crean las migraciones 0009 (HU-29), 0013 (HU-31) y 0014 (HU-32).
 VISTAS = (
     "analitica_requerimientos",
     "analitica_items",
     "analitica_tiempo_atencion",
     "analitica_tiempo_atencion_mensual",
+    "analitica_devoluciones",
+    "analitica_tasa_devolucion_mensual",
 )
 
 DESTINO_POR_OMISION = "analitica"

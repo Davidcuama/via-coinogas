@@ -2271,6 +2271,8 @@ class ExportarAnaliticaTests(TestCase):
             "analitica_items",
             "analitica_tiempo_atencion",
             "analitica_tiempo_atencion_mensual",
+            "analitica_devoluciones",
+            "analitica_tasa_devolucion_mensual",
         ):
             with self.subTest(vista=vista):
                 self.assertTrue((self.destino / f"{vista}.csv").exists())
@@ -2453,6 +2455,8 @@ class CrearRolAnaliticaTests(TestCase):
                 'GRANT SELECT ON "analitica_items" TO "analitica_lectura";',
                 'GRANT SELECT ON "analitica_tiempo_atencion" TO "analitica_lectura";',
                 'GRANT SELECT ON "analitica_tiempo_atencion_mensual" TO "analitica_lectura";',
+                'GRANT SELECT ON "analitica_devoluciones" TO "analitica_lectura";',
+                'GRANT SELECT ON "analitica_tasa_devolucion_mensual" TO "analitica_lectura";',
             ],
         )
         self.assertIn("creado", salida.getvalue())
@@ -4164,3 +4168,147 @@ class IndicadoresVistaWebTests(VistaTestCase):
         url = reverse("requerimientos:indicadores")
         respuesta = self.client.get(url)
         self.assertRedirects(respuesta, f"{reverse('ingresar')}?next={url}")
+
+    def test_pantalla_muestra_seccion_de_tasa_de_devolucion(self):
+        respuesta = self.client.get(reverse("requerimientos:indicadores"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Tasa de devolución")
+        self.assertContains(respuesta, 'id="indicador-tasa-devolucion"')
+        self.assertContains(respuesta, 'id="kpi-tasa-global"')
+
+
+# --- HU-32: indicador de tasa de devolución --------------------------------
+
+
+class TasaDevolucionAnaliticaTests(TransactionTestCase):
+    """HU-32: vistas SQL de devoluciones y tasa de devolución mensual."""
+
+    def setUp(self):
+        from .analitica import DevolucionAnalitica, TasaDevolucionMensual
+
+        self.DevolucionAnalitica = DevolucionAnalitica
+        self.TasaDevolucionMensual = TasaDevolucionMensual
+
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro = CentroCosto.objects.create(codigo="CC-101", nombre="Base Central")
+        self.prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.analista = crear_usuario("analista.hu32", perfil=perfiles.ANALISTA)
+        self.solicitante = crear_usuario("solicitante.hu32", perfil=perfiles.SOLICITANTE)
+
+    def _crear_requerimiento(self, devolver=False):
+        req = Requerimiento.objects.create(
+            solicitante="Juan Camilo",
+            area=self.area,
+            centro_costo=self.centro,
+            justificacion="Insumos para compresores.",
+            prioridad=self.prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+            creado_por=self.solicitante,
+        )
+        if devolver:
+            req.cambiar_estado(
+                EstadoRequerimiento.DEVUELTO,
+                self.analista,
+                "Observación de prueba con más de diez caracteres.",
+            )
+        return req
+
+    def test_requerimiento_devuelto_calcula_correctamente_en_vista_devoluciones(self):
+        req_devuelto = self._crear_requerimiento(devolver=True)
+        req_limpio = self._crear_requerimiento(devolver=False)
+
+        fila_dev = self.DevolucionAnalitica.objects.get(consecutivo=req_devuelto.consecutivo)
+        self.assertTrue(fila_dev.fue_devuelto)
+        self.assertEqual(fila_dev.conteo_devoluciones, 1)
+
+        fila_limpia = self.DevolucionAnalitica.objects.get(consecutivo=req_limpio.consecutivo)
+        self.assertFalse(fila_limpia.fue_devuelto)
+        self.assertEqual(fila_limpia.conteo_devoluciones, 0)
+
+    def test_calculo_tasa_devolucion_mensual_y_evita_division_por_cero(self):
+        # 1 devuelto de 2 radicados -> tasa 50.00%
+        self._crear_requerimiento(devolver=True)
+        self._crear_requerimiento(devolver=False)
+
+        hoy = date.today()
+        resumen = self.TasaDevolucionMensual.objects.get(
+            area=self.area.nombre, anio=hoy.year, mes=hoy.month
+        )
+        self.assertEqual(resumen.total_requerimientos, 2)
+        self.assertEqual(resumen.requerimientos_devueltos, 1)
+        self.assertEqual(Decimal(resumen.tasa_devolucion), Decimal("50.00"))
+
+    def test_vistas_devolucion_son_de_solo_lectura(self):
+        req = self._crear_requerimiento(devolver=False)
+        fila = self.DevolucionAnalitica.objects.get(consecutivo=req.consecutivo)
+        with self.assertRaises(NotImplementedError):
+            fila.save()
+        with self.assertRaises(NotImplementedError):
+            fila.delete()
+
+
+class IndicadoresDevolucionServicioTests(TransactionTestCase):
+    """Pruebas del servicio de cálculo de la tasa de devolución (HU-32)."""
+
+    def test_tasa_devolucion_sin_requerimientos_no_produce_division_por_cero(self):
+        from . import indicadores
+
+        datos = indicadores.tasa_devolucion()
+        self.assertIsNone(datos["tasa"])
+        self.assertEqual(datos["total"], 0)
+        self.assertEqual(datos["devueltos"], 0)
+        self.assertEqual(datos["sin_devolucion"], 0)
+        self.assertEqual(datos["por_area"], [])
+        self.assertEqual(datos["por_mes"], [])
+
+    def test_tasa_devolucion_con_datos_calcula_porcentajes_y_orden_por_area(self):
+        from . import indicadores
+
+        area1 = Area.objects.create(nombre="Área A")
+        area2 = Area.objects.create(nombre="Área B")
+        centro = CentroCosto.objects.create(codigo="CC-001", nombre="Sede")
+        prioridad = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        analista = crear_usuario("analista.serv", perfil=perfiles.ANALISTA)
+        solicitante = crear_usuario("solicitante.serv", perfil=perfiles.SOLICITANTE)
+
+        # Área A: 1 devuelto de 1 radicado -> 100%
+        req_a = Requerimiento.objects.create(
+            solicitante="Prueba A",
+            area=area1,
+            centro_costo=centro,
+            justificacion="Requerimiento A",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+            creado_por=solicitante,
+        )
+        req_a.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO,
+            analista,
+            "Devolución de información incompleta en área A.",
+        )
+
+        # Área B: 0 devueltos de 1 radicado -> 0%
+        Requerimiento.objects.create(
+            solicitante="Prueba B",
+            area=area2,
+            centro_costo=centro,
+            justificacion="Requerimiento B",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+            creado_por=solicitante,
+        )
+
+        datos = indicadores.tasa_devolucion()
+        self.assertEqual(datos["total"], 2)
+        self.assertEqual(datos["devueltos"], 1)
+        self.assertEqual(datos["sin_devolucion"], 1)
+        self.assertEqual(datos["tasa"], 50.0)
+
+        # Ordenado por tasa descendente: Área A primero
+        self.assertEqual(len(datos["por_area"]), 2)
+        self.assertEqual(datos["por_area"][0]["area"], "Área A")
+        self.assertEqual(datos["por_area"][0]["tasa"], 100.0)
+        self.assertEqual(datos["por_area"][0]["ancho"], 100)
+        self.assertEqual(datos["por_area"][1]["area"], "Área B")
+        self.assertEqual(datos["por_area"][1]["tasa"], 0.0)
+        self.assertEqual(datos["por_area"][1]["ancho"], 0)

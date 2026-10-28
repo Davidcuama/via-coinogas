@@ -281,7 +281,29 @@ class Command(BaseCommand):
         la bitácora igual que en la operación real. Nunca fecha un cambio en el
         futuro: si la siguiente etapa caería después de hoy, se queda donde va.
         """
+        # HU-32: simula devolución en ~20% de los requerimientos para el indicador de devoluciones
+        sufre_devolucion = azar.randint(1, 5) == 1
         fecha = fecha_solicitud
+        if sufre_devolucion and fecha + timedelta(days=2) <= hoy:
+            fecha += timedelta(days=azar.randint(1, 2))
+            self._transicion(
+                requerimiento,
+                EstadoRequerimiento.DEVUELTO,
+                analista,
+                fecha,
+                "Por favor especificar la referencia técnica exacta y marca requerida.",
+            )
+            # El solicitante corrige y reenvía 1 a 2 días después
+            if fecha + timedelta(days=1) <= hoy:
+                fecha += timedelta(days=azar.randint(1, 2))
+                self._transicion(
+                    requerimiento,
+                    EstadoRequerimiento.RADICADO,
+                    requerimiento.creado_por,
+                    fecha,
+                    "Se ajustan especificaciones técnicas solicitadas.",
+                )
+
         for estado, (minimo, maximo) in ETAPAS_ATENCION[: azar.choice(AVANCES_POSIBLES)]:
             fecha += timedelta(days=azar.randint(minimo, maximo))
             if fecha > hoy:
