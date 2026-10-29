@@ -64,15 +64,22 @@
   </form>
 
   <div class="card">
-    <div class="card-header">
-      <h2>Radicaciones</h2>
-      {% if hay_filtros %}
-        <span class="mini" id="conteo-resultados">
-          {{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }} con los filtros aplicados
-        </span>
-      {% else %}
-        <span class="mini">{{ page_obj.paginator.count }} en total</span>
-      {% endif %}
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h2>Radicaciones</h2>
+        {% if hay_filtros %}
+          <span class="mini" id="conteo-resultados">
+            {{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }} con los filtros aplicados
+          </span>
+        {% else %}
+          <span class="mini">{{ page_obj.paginator.count }} en total</span>
+        {% endif %}
+      </div>
+      {# HU-26: exporta exactamente lo que está filtrado arriba, no todo el sistema. #}
+      <a href="{% url 'requerimientos:bandeja_exportar' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}"
+         class="btn btn-outline-primary btn-sm" id="exportar-excel">
+        Exportar a Excel
+      </a>
     </div>
     <div class="card-body p-0">
       {% if hay_filtros %}

@@ -6,7 +6,7 @@ import tempfile
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from unittest import mock, skipUnless
 
@@ -24,14 +24,17 @@ from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
+from openpyxl import load_workbook
 
 from . import adjuntos as reglas_adjuntos
 from . import notificaciones, perfiles
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
+from .exportaciones import generar_excel_requerimientos
 from .forms import (
     CAMPOS_OBLIGATORIOS,
     AdjuntosForm,
     CambioEstadoForm,
+    FiltroBitacoraForm,
     ItemForm,
     RequerimientoForm,
     VariosArchivosField,
@@ -4435,3 +4438,221 @@ class CrearUsuariosClienteCommandTests(TestCase):
 
         texto2 = salida2.getvalue()
         self.assertIn("ya existía, clave sin cambios", texto2)
+
+
+class ExportarExcelTests(VistaTestCase):
+    """HU-26: exportación del consolidado de la bandeja a Excel."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def setUp(self):
+        super().setUp()
+        self.area = Area.objects.create(nombre="Mantenimiento")
+        self.centro_costo = CentroCosto.objects.create(codigo="CC-100", nombre="Planta Medellín")
+        self.prioridad_alta = Prioridad.objects.create(nombre=Prioridad.ALTA, orden=1)
+        self.prioridad_media = Prioridad.objects.create(nombre=Prioridad.MEDIA, orden=2)
+        self.unidad = UnidadMedida.objects.create(codigo="UND", nombre="Unidad")
+        self.url = reverse("requerimientos:bandeja_exportar")
+
+    def _radicar(self, solicitante, prioridad, precio=Decimal("1500.00")):
+        requerimiento = Requerimiento.objects.create(
+            solicitante=solicitante,
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Compra de repuestos.",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=1,
+            cantidad=2,
+            unidad_medida=self.unidad,
+            descripcion="Empaque",
+            precio_referencia=precio,
+        )
+        return requerimiento
+
+    def _libro(self, respuesta):
+        return load_workbook(BytesIO(respuesta.content))
+
+    def test_solo_analista_o_administrador_pueden_exportar(self):
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+        otro = Client()
+        otro.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(otro.get(self.url).status_code, 403)
+
+        otro_admin = Client()
+        otro_admin.force_login(crear_usuario("dc", "David", "Cuadros", perfiles.ADMINISTRADOR))
+        self.assertEqual(otro_admin.get(self.url).status_code, 200)
+
+    def test_el_archivo_es_un_xlsx_descargable(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(
+            respuesta["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("attachment", respuesta["Content-Disposition"])
+        self.assertIn(".xlsx", respuesta["Content-Disposition"])
+
+    def test_trae_una_fila_por_requerimiento_con_el_consecutivo_y_el_total(self):
+        uno = self._radicar("Ana Gómez", self.prioridad_alta)
+        dos = self._radicar("Luis Mesa", self.prioridad_media)
+
+        libro = self._libro(self.client.get(self.url))
+        hoja = libro.active
+        encabezados = [celda.value for celda in hoja[1]]
+        self.assertEqual(encabezados[0], "Consecutivo")
+
+        consecutivos = [fila[0].value for fila in hoja.iter_rows(min_row=2)]
+        self.assertCountEqual(consecutivos, [uno.consecutivo, dos.consecutivo])
+        # Cantidad 2 x precio 1500 = 3000, en la columna "Total estimado".
+        totales = [fila[8].value for fila in hoja.iter_rows(min_row=2)]
+        self.assertCountEqual(totales, [3000.0, 3000.0])
+
+    def test_respeta_los_filtros_de_la_bandeja(self):
+        self._radicar("Ana Gómez", self.prioridad_alta)
+        self._radicar("Luis Mesa", self.prioridad_media)
+
+        respuesta = self.client.get(self.url, {"prioridad": self.prioridad_alta.pk})
+        libro = self._libro(respuesta)
+        hoja = libro.active
+        filas = list(hoja.iter_rows(min_row=2))
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0][3].value, "Ana Gómez")
+
+    def test_sin_requerimientos_el_archivo_solo_trae_encabezados(self):
+        libro = self._libro(self.client.get(self.url))
+        hoja = libro.active
+        self.assertEqual(hoja.max_row, 1)
+
+    def test_generar_excel_requerimientos_marca_el_total_parcial(self):
+        # Un ítem sin precio deja el requerimiento con total parcial (HU-10).
+        requerimiento = Requerimiento.objects.create(
+            solicitante="Ana Gómez",
+            area=self.area,
+            centro_costo=self.centro_costo,
+            justificacion="Compra de repuestos.",
+            prioridad=self.prioridad_alta,
+            fecha_requerida=date.today() + timedelta(days=10),
+        )
+        Item.objects.create(
+            requerimiento=requerimiento,
+            numero=1,
+            cantidad=1,
+            unidad_medida=self.unidad,
+            descripcion="Sin precio",
+        )
+        libro = generar_excel_requerimientos(Requerimiento.objects.all())
+        hoja = libro.active
+        fila = next(hoja.iter_rows(min_row=2, values_only=True))
+        self.assertEqual(fila[9], "Sí")  # columna "Total parcial"
+
+
+class BitacoraCambiosVistaTests(VistaTestCase):
+    """HU-28: bitácora de cambios de todo el sistema, para el Administrador."""
+
+    perfil_de_prueba = perfiles.ADMINISTRADOR
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("requerimientos:bitacora")
+        self.analista = crear_usuario("juan.posso", "Juan", "Posso", perfiles.ANALISTA)
+
+    def _requerimiento_con_cambio(self, nuevo_estado=EstadoRequerimiento.EN_REVISION, usuario=None):
+        requerimiento = crear_requerimiento()
+        observacion = (
+            "Falta adjuntar la cotización de referencia."
+            if nuevo_estado == EstadoRequerimiento.DEVUELTO
+            else ""
+        )
+        requerimiento.cambiar_estado(nuevo_estado, usuario or self.analista, observacion)
+        return requerimiento
+
+    def test_solo_el_administrador_entra(self):
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+        analista = Client()
+        analista.force_login(self.analista)
+        self.assertEqual(analista.get(self.url).status_code, 403)
+
+        solicitante = Client()
+        solicitante.force_login(crear_usuario("luis.mesa", "Luis", "Mesa", perfiles.SOLICITANTE))
+        self.assertEqual(solicitante.get(self.url).status_code, 403)
+
+    def test_lista_los_cambios_de_todos_los_requerimientos(self):
+        uno = self._requerimiento_con_cambio()
+        dos = self._requerimiento_con_cambio()
+
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(respuesta.context["cambios"]), 2)
+        self.assertContains(respuesta, uno.consecutivo)
+        self.assertContains(respuesta, dos.consecutivo)
+
+    def test_muestra_quien_hizo_el_cambio_y_la_observacion(self):
+        requerimiento = crear_requerimiento()
+        requerimiento.cambiar_estado(
+            EstadoRequerimiento.DEVUELTO, self.analista, "Falta la ficha técnica del ítem 1."
+        )
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "Juan Posso")
+        self.assertContains(respuesta, "Falta la ficha técnica del ítem 1.")
+
+    def test_filtra_por_consecutivo(self):
+        uno = self._requerimiento_con_cambio()
+        self._requerimiento_con_cambio()
+
+        respuesta = self.client.get(self.url, {"consecutivo": uno.consecutivo})
+        self.assertEqual(len(respuesta.context["cambios"]), 1)
+        self.assertEqual(respuesta.context["cambios"][0].requerimiento_id, uno.pk)
+
+    def test_filtra_por_usuario_que_hizo_el_cambio(self):
+        otro_analista = crear_usuario("maria.ruiz", "María", "Ruiz", perfiles.ANALISTA)
+        self._requerimiento_con_cambio(usuario=self.analista)
+        self._requerimiento_con_cambio(usuario=otro_analista)
+
+        respuesta = self.client.get(self.url, {"usuario": otro_analista.pk})
+        self.assertEqual(len(respuesta.context["cambios"]), 1)
+        self.assertEqual(respuesta.context["cambios"][0].usuario_id, otro_analista.pk)
+
+    def test_filtra_por_nuevo_estado(self):
+        self._requerimiento_con_cambio(nuevo_estado=EstadoRequerimiento.EN_REVISION)
+        self._requerimiento_con_cambio(nuevo_estado=EstadoRequerimiento.DEVUELTO)
+
+        respuesta = self.client.get(self.url, {"estado_nuevo": EstadoRequerimiento.DEVUELTO})
+        self.assertEqual(len(respuesta.context["cambios"]), 1)
+        self.assertEqual(
+            respuesta.context["cambios"][0].estado_nuevo, EstadoRequerimiento.DEVUELTO
+        )
+
+    def test_sin_cambios_la_bitacora_sale_vacia_pero_no_falla(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(len(respuesta.context["cambios"]), 0)
+
+    def test_la_barra_ofrece_la_bitacora_solo_al_administrador(self):
+        self.assertContains(self.client.get(self.url), reverse("requerimientos:bitacora"))
+
+        analista = Client()
+        analista.force_login(self.analista)
+        respuesta = analista.get(reverse("requerimientos:bandeja"))
+        self.assertNotContains(respuesta, reverse("requerimientos:bitacora"))
+
+
+class FiltroBitacoraFormTests(TestCase):
+    """HU-28: validación del formulario de filtros de la bitácora."""
+
+    def test_fecha_desde_posterior_a_hasta_se_descarta(self):
+        formulario = FiltroBitacoraForm(
+            {"desde": "2026-10-20", "hasta": "2026-10-01"}
+        )
+        self.assertFalse(formulario.is_valid())
+        self.assertEqual(formulario.criterios(), {})
+
+    def test_sin_filtros_no_hay_filtros_aplicados(self):
+        self.assertFalse(FiltroBitacoraForm({}).hay_filtros())
+
+    def test_con_un_filtro_si_hay_filtros_aplicados(self):
+        self.assertTrue(FiltroBitacoraForm({"consecutivo": "REQ"}).hay_filtros())
