@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block titulo %}Bitácora de cambios · VIA Compras{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width: 1140px;">
+
+  <div class="banda mb-4">
+    <div class="eyebrow">Administrador</div>
+    <h1>Bitácora de cambios</h1>
+    <p class="sub">
+      Quién modificó qué requerimiento, cuándo y a qué estado, en todo el sistema.
+    </p>
+  </div>
+
+  {% comment %}
+    HU-28: los filtros viajan por GET, igual que en la bandeja (HU-21), para
+    que la vista filtrada se pueda recargar o compartir sin perder los
+    criterios.
+  {% endcomment %}
+  <form method="get" class="card mb-3" id="filtros-bitacora" role="search">
+    <div class="card-body">
+      {% if filtros.errors %}
+        <div class="alert alert-warning py-2 small" role="alert" id="errores-filtros">
+          Algunos filtros no se aplicaron:
+          <ul class="mb-0">
+            {% for campo in filtros %}{% for error in campo.errors %}<li>{{ campo.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+            {% for error in filtros.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-3">
+          <label for="{{ filtros.consecutivo.id_for_label }}" class="mini mb-1">{{ filtros.consecutivo.label }}</label>
+          {{ filtros.consecutivo }}
+        </div>
+        <div class="col-6 col-md-3">
+          <label for="{{ filtros.usuario.id_for_label }}" class="mini mb-1">{{ filtros.usuario.label }}</label>
+          {{ filtros.usuario }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.estado_nuevo.id_for_label }}" class="mini mb-1">{{ filtros.estado_nuevo.label }}</label>
+          {{ filtros.estado_nuevo }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.desde.id_for_label }}" class="mini mb-1">{{ filtros.desde.label }}</label>
+          {{ filtros.desde }}
+        </div>
+        <div class="col-6 col-md-2">
+          <label for="{{ filtros.hasta.id_for_label }}" class="mini mb-1">{{ filtros.hasta.label }}</label>
+          {{ filtros.hasta }}
+        </div>
+      </div>
+      <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary btn-sm" id="aplicar-filtros">Aplicar</button>
+        {% if request.GET %}
+          <a href="{% url 'requerimientos:bitacora' %}" class="btn btn-outline-secondary btn-sm"
+             id="limpiar-filtros">Limpiar</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Cambios registrados</h2>
+      {% if hay_filtros %}
+        <span class="mini" id="conteo-resultados">
+          {{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }} con los filtros aplicados
+        </span>
+      {% else %}
+        <span class="mini">{{ page_obj.paginator.count }} en total</span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" id="tabla-bitacora">
+          <thead>
+            <tr>
+              <th style="width: 10rem;">Requerimiento</th>
+              <th style="width: 9rem;">Fecha</th>
+              <th>Realizado por</th>
+              <th style="width: 10rem;">De</th>
+              <th style="width: 10rem;">A</th>
+              <th>Observación</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cambio in cambios %}
+              <tr>
+                <td>
+                  <a href="{% url 'requerimientos:ficha' cambio.requerimiento.consecutivo %}"
+                     class="placa clara">{{ cambio.requerimiento.consecutivo }}</a>
+                </td>
+                <td class="dato">{{ cambio.fecha|date:"d/m/Y H:i" }}</td>
+                <td>
+                  {% if cambio.usuario %}
+                    {{ cambio.usuario.get_full_name|default:cambio.usuario.get_username }}
+                  {% else %}
+                    <span class="text-muted">Cuenta eliminada</span>
+                  {% endif %}
+                </td>
+                <td><span class="estado estado-{{ cambio.estado_anterior }}">{{ cambio.get_estado_anterior_display }}</span></td>
+                <td><span class="estado estado-{{ cambio.estado_nuevo }}">{{ cambio.get_estado_nuevo_display }}</span></td>
+                <td>{{ cambio.observacion|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="text-center text-muted py-4">
+                  {% if hay_filtros %}
+                    Ningún cambio coincide con los filtros. Prueba con otros criterios o límpialos.
+                  {% else %}
+                    Todavía no se ha registrado ningún cambio de estado.
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if is_paginated %}
+        <nav class="paginacion" aria-label="Páginas de resultados">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if parametros_filtro %}&{{ parametros_filtro }}{% endif %}"
+               class="btn btn-outline-secondary btn-sm">← Anteriores</a>
+          {% endif %}
+          <span class="mini">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if parametros_filtro %}&{{ parametros_filtro }}{% endif %}"
+               class="btn btn-outline-secondary btn-sm">Siguientes →</a>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

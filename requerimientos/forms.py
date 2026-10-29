@@ -1,6 +1,7 @@
 import re
 
 from django import forms
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db.models import Max
 from django.template.defaultfilters import filesizeformat
@@ -586,6 +587,79 @@ class FiltroBandejaForm(forms.Form):
             consulta = consulta.filter(fecha_solicitud__lte=criterios["hasta"])
         orden = criterios.get("orden", ORDEN_BANDEJA_DEFECTO)
         return consulta.order_by(*ORDEN_BANDEJA[orden][1])
+
+
+class FiltroBitacoraForm(forms.Form):
+    """Filtros de la bitácora de cambios del Administrador (HU-28).
+
+    Mismo patrón que `FiltroBandejaForm` (HU-21): todo viaja por GET y es
+    opcional, para que la vista filtrada se pueda recargar o compartir sin
+    perder los criterios.
+    """
+
+    consecutivo = forms.CharField(
+        label="Consecutivo",
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control form-control-sm", "placeholder": "REQ-2026-0001"}
+        ),
+    )
+    usuario = forms.ModelChoiceField(
+        label="Realizado por",
+        queryset=get_user_model().objects.order_by("first_name", "last_name", "username"),
+        required=False,
+        empty_label="Todos",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    estado_nuevo = forms.ChoiceField(
+        label="Nuevo estado",
+        required=False,
+        choices=[("", "Todos"), *EstadoRequerimiento.choices],
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    desde = forms.DateField(
+        label="Desde",
+        required=False,
+        widget=forms.DateInput(attrs={"class": "form-control form-control-sm", "type": "date"}),
+    )
+    hasta = forms.DateField(
+        label="Hasta",
+        required=False,
+        widget=forms.DateInput(attrs={"class": "form-control form-control-sm", "type": "date"}),
+    )
+
+    def clean(self):
+        datos = super().clean()
+        desde, hasta = datos.get("desde"), datos.get("hasta")
+        if desde and hasta and desde > hasta:
+            datos.pop("desde")
+            datos.pop("hasta")
+            raise forms.ValidationError("La fecha «desde» no puede ser posterior a «hasta».")
+        return datos
+
+    def criterios(self):
+        """Criterios válidos, incluso si otros campos del formulario fallaron."""
+        self.is_valid()
+        return {campo: valor for campo, valor in self.cleaned_data.items() if valor}
+
+    def hay_filtros(self):
+        return bool(self.criterios())
+
+    def aplicar(self, consulta):
+        criterios = self.criterios()
+        if "consecutivo" in criterios:
+            consulta = consulta.filter(
+                requerimiento__consecutivo__icontains=criterios["consecutivo"].strip()
+            )
+        if "usuario" in criterios:
+            consulta = consulta.filter(usuario=criterios["usuario"])
+        if "estado_nuevo" in criterios:
+            consulta = consulta.filter(estado_nuevo=criterios["estado_nuevo"])
+        if "desde" in criterios:
+            consulta = consulta.filter(fecha__date__gte=criterios["desde"])
+        if "hasta" in criterios:
+            consulta = consulta.filter(fecha__date__lte=criterios["hasta"])
+        return consulta
 
 
 class SelectorVariosArchivos(forms.ClearableFileInput):
