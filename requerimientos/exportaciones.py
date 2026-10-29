@@ -84,9 +84,7 @@ def generar_excel_requerimientos(requerimientos):
     if fila > 1:
         rango = f"A1:{get_column_letter(len(ENCABEZADOS))}{fila}"
         tabla = Table(displayName="Requerimientos", ref=rango)
-        tabla.tableStyleInfo = TableStyleInfo(
-            name="TableStyleMedium2", showRowStripes=True
-        )
+        tabla.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         hoja.add_table(tabla)
 
     anchos = (16, 14, 16, 22, 20, 20, 10, 10, 14, 12, 14, 40)

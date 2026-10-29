@@ -166,9 +166,7 @@ class ExportarBandejaExcelView(PerfilRequeridoMixin, View):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         marca = timezone.localtime().strftime("%Y%m%d-%H%M")
-        respuesta["Content-Disposition"] = (
-            f'attachment; filename="requerimientos-{marca}.xlsx"'
-        )
+        respuesta["Content-Disposition"] = f'attachment; filename="requerimientos-{marca}.xlsx"'
         libro.save(respuesta)
         return respuesta
 
@@ -215,9 +213,9 @@ class BitacoraCambiosView(PerfilRequeridoMixin, ListView):
         return self._filtros
 
     def get_queryset(self):
-        consulta = CambioEstado.objects.select_related(
-            "requerimiento", "usuario"
-        ).order_by("-fecha", "-pk")
+        consulta = CambioEstado.objects.select_related("requerimiento", "usuario").order_by(
+            "-fecha", "-pk"
+        )
         return self.get_filtros().aplicar(consulta)
 
     def get_context_data(self, **kwargs):

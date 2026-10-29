@@ -4623,9 +4623,7 @@ class BitacoraCambiosVistaTests(VistaTestCase):
 
         respuesta = self.client.get(self.url, {"estado_nuevo": EstadoRequerimiento.DEVUELTO})
         self.assertEqual(len(respuesta.context["cambios"]), 1)
-        self.assertEqual(
-            respuesta.context["cambios"][0].estado_nuevo, EstadoRequerimiento.DEVUELTO
-        )
+        self.assertEqual(respuesta.context["cambios"][0].estado_nuevo, EstadoRequerimiento.DEVUELTO)
 
     def test_sin_cambios_la_bitacora_sale_vacia_pero_no_falla(self):
         respuesta = self.client.get(self.url)
@@ -4645,9 +4643,7 @@ class FiltroBitacoraFormTests(TestCase):
     """HU-28: validación del formulario de filtros de la bitácora."""
 
     def test_fecha_desde_posterior_a_hasta_se_descarta(self):
-        formulario = FiltroBitacoraForm(
-            {"desde": "2026-10-20", "hasta": "2026-10-01"}
-        )
+        formulario = FiltroBitacoraForm({"desde": "2026-10-20", "hasta": "2026-10-01"})
         self.assertFalse(formulario.is_valid())
         self.assertEqual(formulario.criterios(), {})
 
