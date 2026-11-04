@@ -4,6 +4,11 @@
 
 Proyecto Integrador 2 · Universidad EAFIT · Ingeniería de Sistemas
 
+**Aplicación en línea: https://100-59-66-253.sslip.io**
+
+Desplegada en AWS EC2 con HTTPS. El acceso requiere una cuenta de Coinogas; las cuentas las
+crea el administrador del sistema. Cómo está montado el servidor: [Wiki · Despliegue en AWS](../../wiki/Despliegue-en-AWS).
+
 ---
 
 ## El problema
@@ -43,7 +48,7 @@ El **backlog** vive en las [Issues](../../issues), etiquetadas por épica y prio
 | Imágenes | Pillow |
 | Correo | SMTP (aviso automático al área de compras) |
 | Analítica | Vistas SQL de solo lectura + Microsoft Power BI |
-| Despliegue | Docker |
+| Despliegue | AWS EC2 · nginx · gunicorn · HTTPS con Let's Encrypt |
 
 ---
 
@@ -122,7 +127,8 @@ coma; si no hay ninguno, la radicación funciona igual y la omisión queda regis
 
 ## Despliegue
 
-La aplicación se despliega en **AWS EC2** con nginx, gunicorn y PostgreSQL. La guía paso a paso,
+La aplicación está desplegada en **AWS EC2** con nginx, gunicorn y PostgreSQL, en
+**https://100-59-66-253.sslip.io**. La guía paso a paso,
 desde crear la instancia hasta el certificado HTTPS, y los archivos del servidor (servicio,
 sitio de nginx, script de actualización con vuelta atrás y respaldo diario de la base) están en
 [`despliegue/`](despliegue/README.md).

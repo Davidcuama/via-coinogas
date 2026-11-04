@@ -1,7 +1,10 @@
 # Despliegue de VIA Compras en AWS EC2
 
 Guía para montar el servidor desde cero y para actualizarlo después. La versión
-narrada, con el despliegue real del proyecto, está en la Wiki.
+narrada, con el despliegue real del proyecto, está en la Wiki:
+[Despliegue en AWS](https://github.com/Davidcuama/via-coinogas/wiki/Despliegue-en-AWS).
+
+**Producción:** https://100-59-66-253.sslip.io
 
 ## Arquitectura
 
