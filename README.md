@@ -104,6 +104,11 @@ python manage.py exportar_analitica      # escribe analitica/*.csv
 Los CSV no se versionan (son regenerables). El paso a paso para armar el tablero está en la
 [Wiki](../../wiki/Tablero-de-Indicadores).
 
+En el servidor no hace falta correrlo a mano (HU-33): una tarea programada ejecuta todos los
+días `python manage.py actualizar_tablero`, que regenera los CSV en `ANALITICA_DIR`, deja
+constancia de la fecha y el resultado, y arma un `.zip` que se descarga desde la página
+**Indicadores**. Ahí mismo se ve cuándo fue la última actualización y si la última falló.
+
 Para correr las pruebas sin PostgreSQL: `DB_ENGINE=sqlite python manage.py test`.
 
 Los casos de prueba funcionales del sprint están en **[TESTING.md](TESTING.md)**.

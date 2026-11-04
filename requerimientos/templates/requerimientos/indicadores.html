@@ -12,6 +12,32 @@
   </div>
 
   {% comment %}
+    HU-33: esta página siempre está en vivo; lo que se actualiza en horario es
+    el archivo que lee Power BI Desktop. Aquí se ve cuándo fue la última vez y
+    si la última corrida falló.
+  {% endcomment %}
+  <section class="card mb-4" id="estado-tablero" aria-labelledby="titulo-estado-tablero">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <h2 id="titulo-estado-tablero" class="h6 mb-1">Datos del tablero de Power BI</h2>
+        {% if not tablero %}
+          <p class="mb-0 text-body-secondary" id="tablero-sin-datos">Todavía no se han generado. La tarea programada los crea en su próxima corrida.</p>
+        {% elif tablero.exitosa %}
+          <p class="mb-0" id="tablero-actualizado">Última actualización: <strong>{{ tablero.ultima_exitosa|date:"j \d\e F \d\e Y, g:i a"|lower }}</strong> · se regeneran solos todos los días a las 6:00 a. m.</p>
+        {% else %}
+          <div class="alert alert-warning mb-0 py-2" role="alert" id="tablero-fallo">
+            <strong>Falló la actualización</strong> del {{ tablero.ultimo_intento|date:"j \d\e F, g:i a"|lower }}; avise al administrador del sistema.
+            {% if tablero.ultima_exitosa %}Los datos disponibles son del {{ tablero.ultima_exitosa|date:"j \d\e F \d\e Y, g:i a"|lower }}{% else %}Aún no hay datos disponibles{% endif %}
+          </div>
+        {% endif %}
+      </div>
+      {% if tablero.hay_paquete %}
+        <a class="btn btn-outline-primary" href="{% url 'requerimientos:datos_tablero' %}" id="descargar-datos-tablero">Descargar datos (.zip)</a>
+      {% endif %}
+    </div>
+  </section>
+
+  {% comment %}
     HU-31: tiempo de atención = días entre la radicación y el cierre. Solo
     cuenta lo cerrado; lo abierto se informa aparte para no esconderlo.
   {% endcomment %}

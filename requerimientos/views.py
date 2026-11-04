@@ -11,7 +11,7 @@ from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from . import adjuntos as reglas_adjuntos
-from . import borradores, indicadores, perfiles
+from . import borradores, indicadores, perfiles, tablero
 from .forms import (
     AdjuntosForm,
     CambioEstadoForm,
@@ -148,7 +148,28 @@ class IndicadoresView(PerfilRequeridoMixin, TemplateView):
         contexto = super().get_context_data(**kwargs)
         contexto["tiempo"] = indicadores.tiempo_atencion()
         contexto["devoluciones"] = indicadores.tasa_devolucion()
+        # HU-33: cuándo se actualizaron por última vez los datos de Power BI.
+        contexto["tablero"] = tablero.leer_estado()
         return contexto
+
+
+class DescargarDatosTableroView(PerfilRequeridoMixin, View):
+    """Entrega los datos del tablero de Power BI en un .zip (HU-33).
+
+    Power BI Desktop corre en el computador del jefe del área y no llega a la
+    base del servidor (abrir PostgreSQL a internet no es opción). La tarea
+    programada deja los CSV al día; aquí se descargan, con los mismos perfiles
+    que ven los indicadores, y en Power BI basta con pulsar *Actualizar*.
+    """
+
+    perfiles_permitidos = IndicadoresView.perfiles_permitidos
+
+    def get(self, request):
+        try:
+            archivo = tablero.ruta_paquete().open("rb")
+        except FileNotFoundError as error:
+            raise Http404("Los datos del tablero aún no se han generado.") from error
+        return FileResponse(archivo, as_attachment=True, filename=tablero.ARCHIVO_PAQUETE)
 
 
 class MisRequerimientosView(LoginRequiredMixin, ListView):
