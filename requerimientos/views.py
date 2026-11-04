@@ -4,26 +4,35 @@ from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from . import adjuntos as reglas_adjuntos
 from . import borradores, indicadores, perfiles
+from .exportaciones import generar_excel_requerimientos
 from .forms import (
     AdjuntosForm,
     CambioEstadoForm,
     DevolucionForm,
     FiltroBandejaForm,
+    FiltroBitacoraForm,
     ItemFormSet,
     ProveedoresSugeridosForm,
     ReenvioForm,
     RequerimientoForm,
     item_formset_desde_borrador,
 )
-from .models import Adjunto, EstadoRequerimiento, Requerimiento, TransicionNoPermitidaError
+from .models import (
+    Adjunto,
+    CambioEstado,
+    EstadoRequerimiento,
+    Requerimiento,
+    TransicionNoPermitidaError,
+)
 from .notificaciones import (
     notificar_confirmacion_solicitante,
     notificar_devolucion,
@@ -133,6 +142,35 @@ class BandejaView(PerfilRequeridoMixin, ListView):
         return contexto
 
 
+class ExportarBandejaExcelView(PerfilRequeridoMixin, View):
+    """Exporta a Excel el consolidado de la bandeja (HU-26).
+
+    «Como analista de compras quiero exportar los requerimientos a Excel»
+    para alimentar reportes de área sin transcribir a mano lo que ya está en
+    pantalla. El archivo respeta los mismos filtros que la bandeja (HU-21):
+    reutiliza `FiltroBandejaForm` para que lo exportado sea exactamente lo
+    que el analista está viendo, filtrado y ordenado igual.
+    """
+
+    perfiles_permitidos = (perfiles.ANALISTA, perfiles.ADMINISTRADOR)
+
+    def get(self, request):
+        filtros = FiltroBandejaForm(request.GET)
+        consulta = Requerimiento.objects.select_related(
+            "area", "centro_costo", "prioridad"
+        ).prefetch_related("items")
+        consulta = filtros.aplicar(consulta)
+
+        libro = generar_excel_requerimientos(consulta)
+        respuesta = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        marca = timezone.localtime().strftime("%Y%m%d-%H%M")
+        respuesta["Content-Disposition"] = f'attachment; filename="requerimientos-{marca}.xlsx"'
+        libro.save(respuesta)
+        return respuesta
+
+
 class IndicadoresView(PerfilRequeridoMixin, TemplateView):
     """Indicadores de gestión del área de compras (Épica 7 - Analítica).
 
@@ -148,6 +186,46 @@ class IndicadoresView(PerfilRequeridoMixin, TemplateView):
         contexto = super().get_context_data(**kwargs)
         contexto["tiempo"] = indicadores.tiempo_atencion()
         contexto["devoluciones"] = indicadores.tasa_devolucion()
+        return contexto
+
+
+class BitacoraCambiosView(PerfilRequeridoMixin, ListView):
+    """Bitácora de cambios de todo el sistema, para el Administrador (HU-28).
+
+    «Como administrador quiero consultar la bitácora de cambios de un
+    requerimiento para saber quién modificó qué y cuándo». La ficha (HU-22)
+    ya muestra la historia de un requerimiento puntual al analista que lo
+    está atendiendo; esta pantalla es la vista consolidada, de todos los
+    requerimientos a la vez, con filtros, que hoy el Administrador no tiene
+    en ninguna parte (solo cuenta con el panel de Django, que no la ofrece
+    de forma consultable). Es exclusiva del perfil Administrador: el
+    analista sigue viendo la bitácora de cada requerimiento desde su ficha.
+    """
+
+    template_name = "requerimientos/bitacora.html"
+    context_object_name = "cambios"
+    paginate_by = 50
+    perfiles_permitidos = (perfiles.ADMINISTRADOR,)
+
+    def get_filtros(self):
+        if not hasattr(self, "_filtros"):
+            self._filtros = FiltroBitacoraForm(self.request.GET)
+        return self._filtros
+
+    def get_queryset(self):
+        consulta = CambioEstado.objects.select_related("requerimiento", "usuario").order_by(
+            "-fecha", "-pk"
+        )
+        return self.get_filtros().aplicar(consulta)
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        filtros = self.get_filtros()
+        contexto["filtros"] = filtros
+        contexto["hay_filtros"] = filtros.hay_filtros()
+        parametros = self.request.GET.copy()
+        parametros.pop("page", None)
+        contexto["parametros_filtro"] = parametros.urlencode()
         return contexto
 
 
