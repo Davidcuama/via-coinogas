@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import zipfile
 from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
@@ -30,7 +31,7 @@ from django.utils.datastructures import MultiValueDict
 from openpyxl import load_workbook
 
 from . import adjuntos as reglas_adjuntos
-from . import notificaciones, perfiles
+from . import notificaciones, perfiles, tablero
 from .borradores import CLAVE_SESION as CLAVE_SESION_BORRADOR
 from .exportaciones import generar_excel_requerimientos
 from .forms import (
@@ -4503,6 +4504,198 @@ class ConfiguracionProduccionTests(TestCase):
         registro = settings.LOGGING["loggers"]
         self.assertEqual(registro["django.request"]["level"], "ERROR")
         self.assertIn("consola", registro["django.request"]["handlers"])
+
+
+# --- HU-33: actualización programada del tablero ---------------------------
+
+
+class CarpetaTableroMixin:
+    """Cada prueba escribe los datos del tablero en una carpeta temporal propia."""
+
+    def setUp(self):
+        super().setUp()
+        self.carpeta = Path(tempfile.mkdtemp(prefix="via-tablero-"))
+        self.addCleanup(shutil.rmtree, self.carpeta, ignore_errors=True)
+        ajuste = override_settings(ANALITICA_DIR=self.carpeta)
+        ajuste.enable()
+        self.addCleanup(ajuste.disable)
+
+    def actualizar(self):
+        # El registro de cada corrida es parte del criterio, pero en la salida
+        # de las pruebas solo haría ruido: se captura y se revisa.
+        with self.assertLogs("requerimientos.tablero", "INFO"):
+            return tablero.actualizar()
+
+    def actualizar_con_fallo(self, mensaje="disco lleno"):
+        with (
+            mock.patch("requerimientos.tablero.call_command", side_effect=OSError(mensaje)),
+            self.assertLogs("requerimientos.tablero", "ERROR") as registro,
+            self.assertRaises(OSError),
+        ):
+            tablero.actualizar()
+        return registro
+
+
+class ActualizacionTableroTests(CarpetaTableroMixin, TestCase):
+    """HU-33: la tarea programada deja al día los datos que lee Power BI."""
+
+    def test_genera_los_csv_de_todas_las_vistas(self):
+        self.actualizar()
+        for vista in tablero.VISTAS:
+            self.assertTrue((self.carpeta / f"{vista}.csv").exists(), vista)
+
+    def test_arma_el_paquete_para_descargar_con_todas_las_vistas(self):
+        self.actualizar()
+        with zipfile.ZipFile(self.carpeta / tablero.ARCHIVO_PAQUETE) as paquete:
+            nombres = set(paquete.namelist())
+        self.assertEqual(nombres, {f"{vista}.csv" for vista in tablero.VISTAS})
+
+    def test_deja_constancia_de_la_fecha_y_el_resultado(self):
+        antes = timezone.now()
+        estado = self.actualizar()
+
+        self.assertTrue(estado["exitosa"])
+        self.assertGreaterEqual(estado["ultima_exitosa"], antes.replace(microsecond=0))
+        self.assertEqual(estado["ultima_exitosa"], estado["ultimo_intento"])
+        self.assertTrue(estado["hay_paquete"])
+        self.assertEqual(tablero.leer_estado(), estado)
+
+    def test_no_deja_la_carpeta_temporal(self):
+        self.actualizar()
+        self.assertFalse((self.carpeta / tablero.CARPETA_EN_CURSO).exists())
+
+    def test_si_falla_registra_el_fallo_y_conserva_la_ultima_buena(self):
+        primera = self.actualizar()
+
+        registro = self.actualizar_con_fallo("disco lleno")
+
+        estado = tablero.leer_estado()
+        self.assertFalse(estado["exitosa"])
+        self.assertEqual(estado["ultima_exitosa"], primera["ultima_exitosa"])
+        self.assertGreaterEqual(estado["ultimo_intento"], primera["ultimo_intento"])
+        self.assertIn("disco lleno", estado["detalle"])
+        self.assertIn("Falló la actualización programada", registro.output[0])
+
+    def test_si_falla_quedan_completos_los_datos_anteriores(self):
+        # Todo o nada: un fallo no puede dejar una mezcla de ayer y hoy.
+        self.actualizar()
+        archivo = self.carpeta / "analitica_requerimientos.csv"
+        contenido = archivo.read_bytes()
+
+        self.actualizar_con_fallo()
+
+        self.assertEqual(archivo.read_bytes(), contenido)
+        self.assertTrue((self.carpeta / tablero.ARCHIVO_PAQUETE).exists())
+
+    def test_falla_sin_haber_corrido_nunca(self):
+        self.actualizar_con_fallo()
+        estado = tablero.leer_estado()
+        self.assertFalse(estado["exitosa"])
+        self.assertIsNone(estado["ultima_exitosa"])
+        self.assertFalse(estado["hay_paquete"])
+
+    def test_sin_constancia_no_hay_estado(self):
+        self.assertIsNone(tablero.leer_estado())
+
+    def test_constancia_ilegible_no_rompe_nada(self):
+        (self.carpeta / tablero.ARCHIVO_ESTADO).write_text("{no es json", encoding="utf-8")
+        self.assertIsNone(tablero.leer_estado())
+
+    def test_si_ni_la_constancia_se_puede_escribir_queda_en_el_registro(self):
+        with (
+            mock.patch("pathlib.Path.write_text", side_effect=OSError("solo lectura")),
+            self.assertLogs("requerimientos.tablero", "ERROR") as registro,
+        ):
+            tablero._guardar_estado(self.carpeta, {"resultado": "exitosa"})
+        self.assertIn("No se pudo guardar la constancia", registro.output[0])
+
+
+class ComandoActualizarTableroTests(CarpetaTableroMixin, TestCase):
+    """HU-33: el comando que corre la tarea programada."""
+
+    def test_informa_que_quedo_actualizado(self):
+        salida = StringIO()
+        with self.assertLogs("requerimientos.tablero", "INFO"):
+            call_command("actualizar_tablero", stdout=salida)
+        self.assertIn("Tablero actualizado", salida.getvalue())
+
+    def test_termina_con_error_si_falla(self):
+        # Código de salida distinto de cero: el fallo queda en el registro de cron.
+        with (
+            mock.patch("requerimientos.tablero.call_command", side_effect=OSError("sin espacio")),
+            self.assertLogs("requerimientos.tablero", "ERROR"),
+            self.assertRaisesMessage(CommandError, "sin espacio"),
+        ):
+            call_command("actualizar_tablero", stdout=StringIO())
+
+    def test_la_tarea_programada_corre_todos_los_dias(self):
+        crontab = Path(settings.BASE_DIR) / "despliegue" / "crontab"
+        tareas = [
+            linea
+            for linea in crontab.read_text(encoding="utf-8").splitlines()
+            if "actualizar_tablero" in linea and not linea.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(tareas), 1)
+        _minuto, _hora, dia, mes, dia_semana = tareas[0].split()[:5]
+        self.assertEqual((dia, mes, dia_semana), ("*", "*", "*"))
+        # Con el registro de cada corrida, para revisar después si falló.
+        self.assertIn("registros/tablero.log", tareas[0])
+
+
+class EstadoTableroVistaWebTests(CarpetaTableroMixin, VistaTestCase):
+    """HU-33: la página de indicadores muestra la última actualización."""
+
+    perfil_de_prueba = perfiles.ANALISTA
+
+    def ver_indicadores(self):
+        return self.client.get(reverse("requerimientos:indicadores"))
+
+    def test_antes_de_la_primera_corrida_lo_dice(self):
+        respuesta = self.ver_indicadores()
+        self.assertContains(respuesta, 'id="tablero-sin-datos"')
+        self.assertNotContains(respuesta, 'id="descargar-datos-tablero"')
+
+    def test_muestra_la_fecha_de_la_ultima_actualizacion(self):
+        estado = self.actualizar()
+        respuesta = self.ver_indicadores()
+
+        self.assertContains(respuesta, 'id="tablero-actualizado"')
+        anio = str(timezone.localtime(estado["ultima_exitosa"]).year)
+        self.assertContains(respuesta, anio)
+        self.assertContains(respuesta, 'id="descargar-datos-tablero"')
+
+    def test_avisa_si_la_ultima_actualizacion_fallo(self):
+        self.actualizar()
+        self.actualizar_con_fallo()
+
+        respuesta = self.ver_indicadores()
+
+        self.assertContains(respuesta, 'id="tablero-fallo"')
+        self.assertContains(respuesta, "Los datos disponibles son del")
+        # Los datos anteriores siguen descargables.
+        self.assertContains(respuesta, 'id="descargar-datos-tablero"')
+
+    def test_descarga_el_paquete_de_datos(self):
+        self.actualizar()
+        respuesta = self.client.get(reverse("requerimientos:datos_tablero"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("attachment", respuesta["Content-Disposition"])
+        self.assertIn(tablero.ARCHIVO_PAQUETE, respuesta["Content-Disposition"])
+        contenido = b"".join(respuesta.streaming_content)
+        with zipfile.ZipFile(BytesIO(contenido)) as paquete:
+            self.assertIn("analitica_requerimientos.csv", paquete.namelist())
+
+    def test_sin_datos_generados_la_descarga_responde_404(self):
+        respuesta = self.client.get(reverse("requerimientos:datos_tablero"))
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_un_solicitante_no_puede_descargar_los_datos(self):
+        self.actualizar()
+        solicitante = crear_usuario("solicitante.hu33", perfil=perfiles.SOLICITANTE)
+        self.client.force_login(solicitante)
+        respuesta = self.client.get(reverse("requerimientos:datos_tablero"))
+        self.assertEqual(respuesta.status_code, 403)
 
 
 class ExportarExcelTests(VistaTestCase):

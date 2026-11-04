@@ -13,3 +13,8 @@ SHELL=/bin/bash
 # Respaldo diario de la base de datos (riesgo R9 del caso de negocio), en la
 # madrugada, cuando nadie está radicando.
 30 2 * * * /srv/via-compras/despliegue/respaldar.sh diario >> /srv/via-compras/registros/respaldo.log 2>&1
+
+# HU-33: datos del tablero de Power BI al día antes de que empiece la jornada.
+# Si falla, queda en el registro y la página «Indicadores» lo avisa; la
+# aplicación sigue funcionando.
+0 6 * * * cd /srv/via-compras && .venv/bin/python manage.py actualizar_tablero >> /srv/via-compras/registros/tablero.log 2>&1

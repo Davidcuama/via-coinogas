@@ -26,6 +26,10 @@ docker-compose.override.yml
 # construir el tablero. El .pbix si se versiona: en modo Importar guarda los
 # datos dentro, asi que el tablero se ve al abrirlo aunque no haya CSV.
 analitica/*.csv
+# HU-33: paquete descargable, constancia y carpeta temporal de la tarea programada.
+analitica/*.zip
+analitica/*.json
+analitica/.en-curso/
 
 # Editores
 .vscode/

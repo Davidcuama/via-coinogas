@@ -197,6 +197,10 @@ STORAGES = {
 # estática: cada adjunto se entrega por una vista que revisa que quien lo pide
 # tenga derecho a verlo, porque el consecutivo que va en la ruta es adivinable.
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+
+# HU-33: carpeta donde la tarea programada deja los datos del tablero de Power BI
+# (CSV, paquete .zip para descargar y la constancia de la última actualización).
+ANALITICA_DIR = Path(os.environ.get("ANALITICA_DIR", BASE_DIR / "analitica"))
 MEDIA_URL = "media/"
 
 

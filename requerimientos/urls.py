@@ -17,6 +17,12 @@ urlpatterns = [
     path("mios/", views.MisRequerimientosView.as_view(), name="mios"),
     # Épica 7 - Analítica: indicadores del área de compras (HU-31).
     path("indicadores/", views.IndicadoresView.as_view(), name="indicadores"),
+    # HU-33: datos del tablero de Power BI que deja al día la tarea programada.
+    path(
+        "indicadores/datos-tablero/",
+        views.DescargarDatosTableroView.as_view(),
+        name="datos_tablero",
+    ),
     # HU-28: bitácora de cambios de todo el sistema, exclusiva del Administrador.
     path("bitacora/", views.BitacoraCambiosView.as_view(), name="bitacora"),
     # HU-22: ficha completa del requerimiento para el area de compras.

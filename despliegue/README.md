@@ -28,7 +28,7 @@ Navegador ──HTTPS──▶ nginx ──socket──▶ gunicorn ──▶ Dj
 | `nginx-via-compras.conf` | Sitio de nginx. |
 | `actualizar.sh` | Actualiza el servidor a la última versión de `main`, con vuelta atrás si algo falla. |
 | `respaldar.sh` | Respalda la base de datos. |
-| `crontab` | Tareas programadas: respaldo diario. |
+| `crontab` | Tareas programadas: respaldo diario y actualización del tablero (HU-33). |
 
 ## Instalación inicial
 
@@ -200,6 +200,14 @@ sudo systemctl restart via-compras
 sudo -iu via crontab /srv/via-compras/despliegue/crontab
 ```
 
+Quedan dos tareas: el respaldo de la base a las 2:30 a. m. y la actualización
+de los datos del tablero de Power BI a las 6:00 a. m. (HU-33). Para no esperar
+a la primera corrida del tablero:
+
+```bash
+sudo -iu via bash -c 'cd /srv/via-compras && .venv/bin/python manage.py actualizar_tablero'
+```
+
 ## Actualizar a una versión nueva
 
 Cuando se mergea algo a `main`:
@@ -220,5 +228,7 @@ estaba corriendo y se detiene.
 | Ver los registros en vivo | `journalctl -u via-compras -f` |
 | Errores de nginx | `sudo tail -f /var/log/nginx/error.log` |
 | Respaldar ya | `sudo -iu via /srv/via-compras/despliegue/respaldar.sh manual` |
+| Actualizar el tablero ya | `sudo -iu via bash -c 'cd /srv/via-compras && .venv/bin/python manage.py actualizar_tablero'` |
+| Ver las corridas del tablero | `tail /srv/via-compras/registros/tablero.log` |
 | Restaurar un respaldo | `PGPASSWORD='<DB_PASSWORD>' pg_restore -h localhost -U via_app --clean -d via_coinogas <archivo>` |
 | Renovar el certificado (automático) | `sudo certbot renew --dry-run` para probar |
