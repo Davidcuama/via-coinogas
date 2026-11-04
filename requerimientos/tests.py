@@ -24,6 +24,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection, transaction
+from django.db.models import ProtectedError
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -4910,3 +4911,60 @@ class FiltroBitacoraFormTests(TestCase):
 
     def test_con_un_filtro_si_hay_filtros_aplicados(self):
         self.assertTrue(FiltroBitacoraForm({"consecutivo": "REQ"}).hay_filtros())
+
+
+class ParametrizacionCatalogosTests(TestCase):
+    """Parametrización de áreas, centros de costo y prioridades (HU-27).
+
+    El administrador gestiona estos catálogos desde el panel de administración
+    y los cambios se reflejan en el formulario de radicación. La integridad se
+    protege con ``on_delete=PROTECT``: no se puede borrar un catálogo que ya
+    tenga requerimientos asociados.
+    """
+
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username="admin.param", password="Clave-Prueba-123", email="admin@coinogas.com"
+        )
+        self.client.force_login(self.admin)
+
+    def test_el_admin_puede_crear_un_area_desde_el_panel(self):
+        """Happy path: crear un área desde el admin la deja disponible en el sistema."""
+        url = reverse("admin:requerimientos_area_add")
+        respuesta = self.client.post(url, {"nombre": "Mantenimiento de Gasoducto"})
+
+        self.assertEqual(respuesta.status_code, 302)  # redirige tras guardar
+        self.assertTrue(Area.objects.filter(nombre="Mantenimiento de Gasoducto").exists())
+
+    def test_un_area_nueva_aparece_como_opcion_en_el_formulario(self):
+        """Los catálogos parametrizados se reflejan en el formulario de radicación."""
+        area = Area.objects.create(nombre="Logística de Transporte")
+        formulario = RequerimientoForm()
+
+        opciones = [valor for valor, _ in formulario.fields["area"].choices]
+        self.assertIn(area.pk, opciones)
+
+    def test_no_se_puede_eliminar_un_area_con_requerimientos(self):
+        """Flujo alterno: PROTECT impide borrar un catálogo en uso (integridad)."""
+        area = Area.objects.create(nombre="Área en uso")
+        centro = CentroCosto.objects.create(codigo="CC-900", nombre="Centro en uso")
+        prioridad = Prioridad.objects.create(nombre="TEMPORAL", orden=9)
+        Requerimiento.objects.create(
+            solicitante="Prueba",
+            area=area,
+            centro_costo=centro,
+            justificacion="Requerimiento que usa el área.",
+            prioridad=prioridad,
+            fecha_requerida=date.today() + timedelta(days=5),
+        )
+
+        with self.assertRaises(ProtectedError):
+            area.delete()
+
+    def test_prioridad_respeta_el_orden_configurado(self):
+        """El orden parametrizado en las prioridades se respeta al listarlas."""
+        Prioridad.objects.create(nombre="URGENTE", orden=0)
+        Prioridad.objects.create(nombre="NORMAL", orden=5)
+
+        ordenadas = list(Prioridad.objects.order_by("orden").values_list("nombre", flat=True))
+        self.assertEqual(ordenadas[0], "URGENTE")
