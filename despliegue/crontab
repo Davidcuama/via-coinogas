@@ -1,0 +1,15 @@
+# Tareas programadas de VIA Compras.
+#
+# Se instalan en el servidor, como el usuario «via»:
+#   crontab /srv/via-compras/despliegue/crontab
+# y se revisan con:
+#   crontab -l
+#
+# Las horas son de Colombia: la guía de instalación deja el servidor en la zona
+# horaria America/Bogota (ver despliegue/README.md).
+
+SHELL=/bin/bash
+
+# Respaldo diario de la base de datos (riesgo R9 del caso de negocio), en la
+# madrugada, cuando nadie está radicando.
+30 2 * * * /srv/via-compras/despliegue/respaldar.sh diario >> /srv/via-compras/registros/respaldo.log 2>&1

@@ -41,6 +41,15 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Orígenes desde los que se aceptan formularios (POST) cuando el sitio va por
+# HTTPS detrás de un proxy, con el esquema incluido: https://via.ejemplo.com.
+# Sin esto, Django rechaza con 403 de CSRF todo formulario, incluido el ingreso.
+CSRF_TRUSTED_ORIGINS = [
+    origen.strip()
+    for origen in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origen.strip()
+]
+
 
 # Application definition
 
@@ -56,6 +65,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Sirve el CSS, el logo y los scripts en producción sin un servidor aparte.
+    # Va justo después de SecurityMiddleware, como pide su documentación.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -165,6 +177,18 @@ LOGOUT_REDIRECT_URL = "portada"
 
 STATIC_URL = "static/"
 
+# Carpeta donde `collectstatic` reúne los archivos estáticos para producción.
+# Fuera del control de versiones (ver .gitignore).
+STATIC_ROOT = Path(os.environ.get("STATIC_ROOT", BASE_DIR / "staticfiles"))
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # WhiteNoise entrega los estáticos comprimidos con gzip. Se usa la
+    # variante sin manifiesto: la que renombra los archivos con un hash exige
+    # correr `collectstatic` antes de cada prueba, y el CSS cambia poco.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
 
 # Archivos subidos por los usuarios (HU-11: adjuntos del requerimiento)
 # https://docs.djangoproject.com/en/6.1/topics/files/
@@ -184,6 +208,62 @@ MEDIA_URL = "media/"
 # contra la migración inicial, que ya declara BigAutoField.
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# HTTPS detrás de un proxy (nginx en el servidor)
+# https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+
+# Apagado por defecto, para que el desarrollo local siga funcionando por HTTP.
+# En el servidor, con certificado instalado, se activa con USAR_HTTPS=True.
+USAR_HTTPS = os.environ.get("USAR_HTTPS", "False").lower() in ("true", "1", "yes")
+
+if USAR_HTTPS:
+    # nginx termina el HTTPS y le pasa la petición a gunicorn por HTTP. Esta
+    # cabecera le dice a Django que la conexión original sí era segura; sin
+    # ella, la tomaría por HTTP y el chequeo de CSRF rechazaría los formularios.
+    # Es seguro solo porque nginx la sobrescribe siempre (ver despliegue/).
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # HSTS: el navegador recuerda que el sitio va solo por HTTPS. Arranca en
+    # una hora a propósito: si el certificado fallara, un valor largo dejaría
+    # el sitio inaccesible desde ese navegador hasta que venza. Se sube cuando
+    # el despliegue esté estable.
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # La lista de precarga de los navegadores exige un año de HSTS y casi no
+    # tiene vuelta atrás: no aplica a un dominio de prueba. Se deja apagada a
+    # propósito y se silencia el aviso que lo recuerda.
+    SILENCED_SYSTEM_CHECKS = ["security.W021"]
+
+
+# Registro de errores
+# https://docs.djangoproject.com/en/6.1/topics/logging/
+
+# Con DEBUG=False, Django manda los errores 500 por correo a ADMINS y no los
+# escribe en ningún lado; sin esto, en el servidor no habría forma de saber por
+# qué falló algo. Todo va a la consola, que gunicorn y systemd guardan
+# (journalctl -u via-compras).
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {"format": "{asctime} {levelname} {name}: {message}", "style": "{"},
+    },
+    "handlers": {
+        "consola": {"class": "logging.StreamHandler", "formatter": "simple"},
+    },
+    "root": {"handlers": ["consola"], "level": "WARNING"},
+    "loggers": {
+        "django": {"handlers": ["consola"], "level": "WARNING", "propagate": False},
+        # Los 404 y 403 son parte del uso normal (y de las pruebas): solo se
+        # registran los errores reales del servidor.
+        "django.request": {"handlers": ["consola"], "level": "ERROR", "propagate": False},
+        # Avisos de correo que no salieron (HU-19, HU-24, HU-35), entre otros.
+        "requerimientos": {"handlers": ["consola"], "level": "INFO", "propagate": False},
+    },
+}
 
 
 # Email
