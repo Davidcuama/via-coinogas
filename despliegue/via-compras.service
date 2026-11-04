@@ -1,0 +1,47 @@
+# Servicio de systemd para VIA Compras (gunicorn).
+#
+# Instalación (ver despliegue/README.md):
+#   sudo cp despliegue/via-compras.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now via-compras
+#
+# Arranca solo cuando el servidor se reinicia y se vuelve a levantar si el
+# proceso se cae. Los registros quedan en el diario del sistema:
+#   journalctl -u via-compras -f
+
+[Unit]
+Description=VIA Compras (gunicorn)
+After=network.target postgresql.service
+
+[Service]
+User=via
+Group=www-data
+WorkingDirectory=/srv/via-compras
+
+# La configuración la lee Django del archivo .env del proyecto (python-dotenv),
+# así que aquí no se repite ninguna variable ni ningún secreto.
+
+# /run/via-compras se crea al arrancar y se borra al detener. El socket queda
+# con grupo www-data para que nginx lo alcance, y nadie más.
+RuntimeDirectory=via-compras
+RuntimeDirectoryMode=0750
+
+# Tres procesos alcanzan para una instancia de 1 vCPU y el volumen de
+# Coinogas. El tiempo de espera cubre el envío de correo (EMAIL_TIMEOUT=10) y
+# la subida de adjuntos de HU-11 por una conexión lenta.
+ExecStart=/srv/via-compras/.venv/bin/gunicorn via_coinogas.wsgi:application \
+    --workers 3 \
+    --bind unix:/run/via-compras/gunicorn.sock \
+    --timeout 60 \
+    --access-logfile - \
+    --error-logfile -
+
+Restart=on-failure
+RestartSec=5
+
+# Endurecimiento: el proceso no puede ganar privilegios ni ver el /tmp de otros.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

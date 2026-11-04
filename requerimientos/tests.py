@@ -1,7 +1,10 @@
 import csv
+import os
 import re
 import shutil
 import smtplib
+import subprocess
+import sys
 import tempfile
 import threading
 from datetime import date, timedelta
@@ -4435,3 +4438,65 @@ class CrearUsuariosClienteCommandTests(TestCase):
 
         texto2 = salida2.getvalue()
         self.assertIn("ya existía, clave sin cambios", texto2)
+
+
+class ConfiguracionProduccionTests(TestCase):
+    """Despliegue: la configuración de producción arranca y pasa los chequeos.
+
+    Los ajustes de Django se leen una sola vez, al importar `settings`, así que
+    para probar la configuración de producción hay que correr `manage.py` en un
+    proceso aparte con las variables del servidor, como lo haría gunicorn.
+    """
+
+    ENTORNO_SERVIDOR = {
+        "DB_ENGINE": "sqlite",
+        "SECRET_KEY": "clave-larga-solo-para-probar-la-configuracion-de-produccion-0123456789",
+        "DEBUG": "False",
+        "ALLOWED_HOSTS": "via.ejemplo.com",
+        "CSRF_TRUSTED_ORIGINS": "https://via.ejemplo.com",
+        "USAR_HTTPS": "True",
+        "EMAIL_HOST": "smtp.ejemplo.com",
+    }
+
+    def _manage(self, *argumentos, **entorno):
+        variables = {**os.environ, **self.ENTORNO_SERVIDOR, **entorno}
+        # Comando fijo (el propio manage.py con el intérprete actual), sin shell
+        # ni datos externos: no hay entrada que se pueda inyectar.
+        return subprocess.run(  # noqa: S603
+            [sys.executable, str(Path(settings.BASE_DIR) / "manage.py"), *argumentos],
+            capture_output=True,
+            text=True,
+            env=variables,
+            timeout=120,
+            check=False,
+        )
+
+    def test_el_chequeo_de_despliegue_de_django_pasa_sin_avisos(self):
+        resultado = self._manage("check", "--deploy", "--fail-level", "WARNING")
+        self.assertEqual(resultado.returncode, 0, resultado.stderr + resultado.stdout)
+
+    def test_collectstatic_reune_y_comprime_los_estaticos(self):
+        # Sin STATIC_ROOT, collectstatic fallaba y el sitio quedaba sin estilos.
+        destino = tempfile.mkdtemp(prefix="via-estaticos-")
+        self.addCleanup(shutil.rmtree, destino, ignore_errors=True)
+
+        resultado = self._manage("collectstatic", "--noinput", STATIC_ROOT=destino)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        css = Path(destino) / "requerimientos" / "via-compras.css"
+        self.assertTrue(css.exists())
+        # WhiteNoise deja además la versión comprimida que entrega al navegador.
+        self.assertTrue(css.with_name("via-compras.css.gz").exists())
+
+    def test_sin_https_el_sitio_sigue_funcionando_por_http_en_desarrollo(self):
+        # Con USAR_HTTPS apagado (el valor por defecto) no se fuerza HTTPS ni se
+        # exigen cookies seguras: el desarrollo local sigue igual que siempre.
+        self.assertFalse(settings.SESSION_COOKIE_SECURE)
+        self.assertFalse(settings.SECURE_SSL_REDIRECT)
+
+    def test_los_errores_del_servidor_quedan_registrados(self):
+        # Con DEBUG=False, Django no escribe los errores 500 en ningún lado salvo
+        # que se le configure: en el servidor no habría cómo saber qué falló.
+        registro = settings.LOGGING["loggers"]
+        self.assertEqual(registro["django.request"]["level"], "ERROR")
+        self.assertIn("consola", registro["django.request"]["handlers"])

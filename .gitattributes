@@ -1,0 +1,3 @@
+# Los scripts del servidor se ejecutan con bash en Linux, que no entiende
+# los saltos de línea de Windows (CRLF).
+*.sh text eol=lf

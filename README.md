@@ -115,6 +115,19 @@ vacío, los correos se imprimen en la consola del servidor y el flujo se puede p
 sin credenciales. Los buzones que reciben el aviso se listan en `COMPRAS_EMAILS`, separados por
 coma; si no hay ninguno, la radicación funciona igual y la omisión queda registrada en el log.
 
+## Despliegue
+
+La aplicación se despliega en **AWS EC2** con nginx, gunicorn y PostgreSQL. La guía paso a paso,
+desde crear la instancia hasta el certificado HTTPS, y los archivos del servidor (servicio,
+sitio de nginx, script de actualización con vuelta atrás y respaldo diario de la base) están en
+[`despliegue/`](despliegue/README.md).
+
+Para actualizar el servidor después de un merge a `main`:
+
+```bash
+sudo -iu via /srv/via-compras/despliegue/actualizar.sh
+```
+
 ## Calidad del código
 
 | Herramienta | Para qué | Comando |
